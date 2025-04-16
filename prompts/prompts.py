@@ -5,7 +5,7 @@ with the answer. The reasoning process and answer are enclosed within <think> </
 <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think>
 <answer> \\boxed{{}} </answer>. 
 User: {user_input}
-Assistant: <think>
+Assistant:
 """
 
 # Example usage:
