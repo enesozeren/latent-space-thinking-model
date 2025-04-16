@@ -1,0 +1,15 @@
+{"time":"2025-04-16T18:50:08.455732+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/Users/eno/Documents/my-repos/latent-reasoner/wandb/run-20250416_185008-e6umlwor/logs/debug-core.log"}
+{"time":"2025-04-16T18:50:08.982241+02:00","level":"INFO","msg":"created new stream","id":"e6umlwor"}
+{"time":"2025-04-16T18:50:08.982294+02:00","level":"INFO","msg":"stream: started","id":"e6umlwor"}
+{"time":"2025-04-16T18:50:08.982319+02:00","level":"INFO","msg":"handler: started","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:08.982359+02:00","level":"INFO","msg":"sender: started","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:08.982342+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:09.531019+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-04-16T18:50:52.675415+02:00","level":"INFO","msg":"stream: closing","id":"e6umlwor"}
+{"time":"2025-04-16T18:50:52.675513+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-04-16T18:50:52.675707+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-04-16T18:50:53.42868+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-04-16T18:50:53.953467+02:00","level":"INFO","msg":"handler: closed","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:53.95432+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:53.956105+02:00","level":"INFO","msg":"sender: closed","stream_id":"e6umlwor"}
+{"time":"2025-04-16T18:50:53.956604+02:00","level":"INFO","msg":"stream: closed","id":"e6umlwor"}

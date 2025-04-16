@@ -1,2 +1,14 @@
-# latent-reasoner
-Master thesis about latent space reasoning models trained with reinforcement learning with verifiable rewards
+# Latent Reasoner
+
+Master thesis: Optimizing Language Model Reasoning through Latent Space and Reinforcement Learning with Rule-Based Rewards
+
+Student: Enes Özeren
+Supervisor: Dr. Matthias Aßenmacher
+
+## Repo Structure
+
+TBD
+
+## How to Run the Code
+
+TBD

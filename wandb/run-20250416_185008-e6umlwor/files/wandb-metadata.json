@@ -1,0 +1,44 @@
+{
+  "os":  "macOS-15.1-arm64-arm-64bit",
+  "python":  "CPython 3.12.9",
+  "startedAt":  "2025-04-16T16:50:08.455087Z",
+  "program":  "/Users/eno/Documents/my-repos/latent-reasoner/src/train/train_rl.py",
+  "codePath":  "src/train/train_rl.py",
+  "git":  {
+    "remote":  "https://github.com/enesozeren/latent-reasoner.git",
+    "commit":  "4484111a17975e07c5de9acaa335f4ba49def709"
+  },
+  "email":  "enesozeren7@gmail.com",
+  "root":  "/Users/eno/Documents/my-repos/latent-reasoner",
+  "host":  "MacBookPro.box",
+  "executable":  "/opt/anaconda3/envs/latr/bin/python",
+  "codePathLocal":  "src/train/train_rl.py",
+  "cpu_count":  8,
+  "cpu_count_logical":  8,
+  "disk":  {
+    "/":  {
+      "total":  "494384795648",
+      "used":  "478608613376"
+    },
+    "/System/Volumes/Data":  {
+      "total":  "494384795648",
+      "used":  "478608613376"
+    }
+  },
+  "memory":  {
+    "total":  "17179869184"
+  },
+  "cpu":  {
+    "count":  8,
+    "countLogical":  8
+  },
+  "apple":  {
+    "name":  "Apple M1 Pro",
+    "ecpuCores":  2,
+    "pcpuCores":  6,
+    "gpuCores":  14,
+    "memoryGb":  16,
+    "swapTotalBytes":  "4294967296",
+    "ramTotalBytes":  "17179869184"
+  }
+}

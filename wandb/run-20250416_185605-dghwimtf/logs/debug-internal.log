@@ -1,0 +1,15 @@
+{"time":"2025-04-16T18:56:05.974624+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/Users/eno/Documents/my-repos/latent-reasoner/wandb/run-20250416_185605-dghwimtf/logs/debug-core.log"}
+{"time":"2025-04-16T18:56:06.29389+02:00","level":"INFO","msg":"created new stream","id":"dghwimtf"}
+{"time":"2025-04-16T18:56:06.293953+02:00","level":"INFO","msg":"stream: started","id":"dghwimtf"}
+{"time":"2025-04-16T18:56:06.293987+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:06.294003+02:00","level":"INFO","msg":"handler: started","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:06.294035+02:00","level":"INFO","msg":"sender: started","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:06.579802+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-04-16T18:56:07.150645+02:00","level":"INFO","msg":"stream: closing","id":"dghwimtf"}
+{"time":"2025-04-16T18:56:07.150711+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-04-16T18:56:07.150809+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-04-16T18:56:07.89532+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-04-16T18:56:08.156984+02:00","level":"INFO","msg":"handler: closed","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:08.156952+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:08.157471+02:00","level":"INFO","msg":"sender: closed","stream_id":"dghwimtf"}
+{"time":"2025-04-16T18:56:08.157814+02:00","level":"INFO","msg":"stream: closed","id":"dghwimtf"}
