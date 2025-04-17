@@ -3,6 +3,7 @@ import argparse
 import re
 import os
 import logging
+import wandb
 from datetime import datetime
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -80,7 +81,12 @@ def train_model(config_path: str) -> None:
 
     logging.info("Logging initialised – saving to %s", log_path)
     
-    # Weights & Biases
+    # Log the configuration file
+    with open(config_path, "r") as f:
+        config_content = f.read()
+    logging.info("Configuration file contents:\n%s", config_content)
+    
+    # Weights & Biases:
     if "wandb" in cfg and cfg["wandb"].get("project"):
         os.environ["WANDB_PROJECT"] = cfg["wandb"]["project"]
     

@@ -12,3 +12,10 @@ TBD
 ## How to Run the Code
 
 TBD
+
+## Unit tests
+
+Run
+```bash
+python tests/test_rewards.py -v
+```

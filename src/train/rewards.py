@@ -1,7 +1,8 @@
 import re
 from typing import List, Optional
 
-ANSWER_PATTERN = re.compile(r"<answer>\[(.*?)\]</answer>")
+# Updated regex to match answers in the format <answer> \boxed{answer} </answer>
+ANSWER_PATTERN = re.compile(r"<answer>\s*\\boxed\{(.*?)\}\s*</answer>")
 
 def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[str]) -> List[Optional[float]]:
     rewards: List[Optional[float]] = []
@@ -26,11 +27,11 @@ def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[
 def format_reward(completions: List[str], **kwargs):
     """
     Reward function that checks if the completion matches the format:
-    <think>...</think><answer>[...]</answer>.
+    <think>...</think><answer> \boxed{...} </answer>.
     """
     import re
-    # Pattern requires <think>…</think> followed immediately by an <answer> containing [...]
-    pattern = r"^<think>.*?</think>\s*<answer>\[.*?\]</answer>$"
+    # Pattern requires <think>…</think> followed by an <answer> containing \boxed{...}
+    pattern = r"^<think>.*?</think>\s*<answer>\s*\\boxed\{.*?\}\s*</answer>$"
     rewards = []
     for comp in completions:
         # Support both dict-based and string-based completions
@@ -40,10 +41,10 @@ def format_reward(completions: List[str], **kwargs):
         rewards.append(1.0 if match else 0.0)
     return rewards
 
-# # Example
-# ANSWER="<think> i am thinkingg </think> <answer>[5]</answer>"
+# Example
+# ANSWER="<think> i am thinking </think> <answer> \\boxed{5} </answer>"
 # print(ANSWER)
 # f_reward = format_reward(completions=[ANSWER])
 # print("format reward:", f_reward)
 # a_reward = accuracy_reward(prompts=[ANSWER], completions=[ANSWER], answer=[5])
-# print("accuract reward:", a_reward)
+# print("accuracy reward:", a_reward)
