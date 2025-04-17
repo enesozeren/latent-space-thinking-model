@@ -4,3 +4,4 @@ __pycache__
 # Outputs
 /outputs
 /wandb
+/bash_outputs

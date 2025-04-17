@@ -2,18 +2,21 @@ import yaml
 import argparse
 import re
 import os
+import logging
+from datetime import datetime
 from datasets import load_dataset, DatasetDict
 from trl import GRPOTrainer, GRPOConfig
 from src.train.rewards import format_reward, accuracy_reward
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from prompts.prompts import SYSTEM_PROMPT
-# -----------------------------------------------------------------------------
+
+# --------------------------------------------------------------
 #  NOTE
 #  -----
 #  • Launch with Hugging Face Accelerate, e.g.:
-#      accelerate launch --num_processes 4 src/train/train_rl.py --config <CFG>
-# -----------------------------------------------------------------------------
+#      accelerate launch --num_processes 4 src/train/train_rl.py
+# --------------------------------------------------------------
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -73,7 +76,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         per_device_eval_batch_size=config["training"]["per_device_eval_batch_size"],
         gradient_accumulation_steps=config["training"]["gradient_accumulation_steps"],
         learning_rate=float(config["training"]["learning_rate"]),
-        max_steps=config["training"]["max_steps"],
+        num_train_epochs=config["training"]["num_train_epochs"],
         logging_steps=config["training"]["logging_steps"],
         eval_steps=config["training"]["eval_steps"],
         save_steps=config["training"]["save_steps"],
@@ -92,20 +95,44 @@ def setup_training_args(config: dict) -> GRPOConfig:
         remove_unused_columns=False,
         # Other args
         ddp_find_unused_parameters=False,
-        log_completions=True,
-        num_completions_to_print=4
+        log_completions=True
     )
 
 def train_model(config_path: str) -> None:
     """Main training routine."""
     cfg = load_config(config_path)
+    
+    # Logging
+    base_output_dir = cfg["training"]["output_dir"]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(base_output_dir, timestamp)
+    # Update cfg for output_dir
+    cfg["training"]["output_dir"] = output_dir
+
+    # Ensure the output directory exists before writing the log file.
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, "training.log")
+
+    # Configure the root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_path, mode="a"),
+            logging.StreamHandler()
+        ],
+        force=True  # override any previous logging configuration
+    )
+
+    logging.info("Logging initialised – saving to %s", log_path)
+    
     # Weights & Biases: only set the project so HF/TRL auto‑initialises
     if "wandb" in cfg and cfg["wandb"].get("project"):
         os.environ["WANDB_PROJECT"] = cfg["wandb"]["project"]
     data = prepare_dataset(cfg)
     args = setup_training_args(cfg)
 
-    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"])
+    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"], attn_implementation='eager')
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["model_name_or_path"])
 
     trainer = GRPOTrainer(
