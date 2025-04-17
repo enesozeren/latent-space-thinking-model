@@ -4,12 +4,11 @@ import re
 import os
 import logging
 from datetime import datetime
-from datasets import load_dataset, DatasetDict
 from trl import GRPOTrainer, GRPOConfig
-from src.train.rewards import format_reward, accuracy_reward
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from prompts.prompts import SYSTEM_PROMPT
+from src.train.rewards import format_reward, accuracy_reward
+from src.data_process.process_data import prepare_dataset
 
 # --------------------------------------------------------------
 #  NOTE
@@ -22,51 +21,6 @@ def load_config(config_path):
     """Load and return the YAML configuration file."""
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
-
-def _extract_gsm8k_answer(raw_answer: str) -> str:
-    """
-    Extract the canonical short answer from a GSM8K solution string.
-
-    GSM8K places the final numeric answer after the delimiter '####', e.g.
-        "... reasoning ...\n#### 24"
-    We take everything after the *last* occurrence of that delimiter,
-    strip whitespace, and drop a trailing period if present.
-    """
-    if "####" in raw_answer:
-        answer = raw_answer.split("####")[-1]
-    else:
-        answer = raw_answer
-    answer = answer.strip()
-    if answer.endswith("."):
-        answer = answer[:-1].strip()
-    return answer
-
-def _gsm8k_to_grpo(example: dict) -> dict:
-    """Convert a GSM8K row → GRPO expected format using SYSTEM_PROMPT."""
-    question = example["question"].strip()
-    answer = _extract_gsm8k_answer(example["answer"])
-    return {
-        "prompt": SYSTEM_PROMPT.format(user_input=question),
-        "answer": answer,
-    }
-
-def prepare_dataset(config: dict) -> DatasetDict:
-    """Load GSM8K and re‑format into the columns GRPOTrainer expects."""
-    raw_ds = load_dataset(
-        config["dataset"]["name"],
-        config["dataset"].get("subname", None),
-    )
-
-    # Train/val split
-    split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=42)
-
-    processed = {
-        "train": split_ds["train"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "validation": split_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "test": raw_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["test"].column_names),
-    }
-
-    return DatasetDict(processed)
 
 def setup_training_args(config: dict) -> GRPOConfig:
     """Translate YAML `training` + `grpo` sections into a GRPOConfig."""
@@ -126,12 +80,17 @@ def train_model(config_path: str) -> None:
 
     logging.info("Logging initialised – saving to %s", log_path)
     
-    # Weights & Biases: only set the project so HF/TRL auto‑initialises
+    # Weights & Biases
     if "wandb" in cfg and cfg["wandb"].get("project"):
         os.environ["WANDB_PROJECT"] = cfg["wandb"]["project"]
+    
+    # Prepare the dataset
     data = prepare_dataset(cfg)
+    
+    # Arguments
     args = setup_training_args(cfg)
 
+    # Model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"], attn_implementation='eager')
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["model_name_or_path"])
 
