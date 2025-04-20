@@ -28,6 +28,7 @@ def load_config(config_path):
 def setup_training_args(config: dict) -> GRPOConfig:
     """Translate YAML `training` + `grpo` sections into a GRPOConfig."""
     return GRPOConfig(
+        seed=config["training"]["seed"],
         output_dir=config["training"]["output_dir"],
         per_device_train_batch_size=config["training"]["per_device_train_batch_size"],
         per_device_eval_batch_size=config["training"]["per_device_eval_batch_size"],
@@ -37,6 +38,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         logging_steps=config["training"]["logging_steps"],
         eval_steps=config["training"]["eval_steps"],
         save_steps=config["training"]["save_steps"],
+        save_total_limit=config["training"]["save_total_limit"],
         warmup_steps=config["training"]["warmup_steps"],
         weight_decay=config["training"]["weight_decay"],
         # GRPO specific hps
