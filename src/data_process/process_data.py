@@ -33,9 +33,8 @@ def _gsm8k_to_grpo(example: dict) -> dict:
     answer = _extract_gsm8k_answer(example["answer"])
     
     # Append the question to the system prompt
-    # The new system prompt already ends with "User: ", so just append the question
+    # The new system prompt already ends with "User: ", so just append the questions
     prompt = SYSTEM_PROMPT + question + "\nAssistant:"
-    
     return {
         "prompt": prompt,
         "answer": answer,

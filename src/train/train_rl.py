@@ -14,8 +14,10 @@ from src.data_process.process_data import prepare_dataset
 # --------------------------------------------------------------
 #  NOTE
 #  -----
+#  • Start VLLM server, e.g.:
+#      CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model google/gemma-3-1b-it
 #  • Launch with Hugging Face Accelerate, e.g.:
-#      accelerate launch --num_processes 4 src/train/train_rl.py
+#      CUDA_VISIBLE_DEVICES=1,2 accelerate launch src/train/train_rl.py
 # --------------------------------------------------------------
 
 def load_config(config_path):
@@ -50,13 +52,31 @@ def setup_training_args(config: dict) -> GRPOConfig:
         remove_unused_columns=False,
         # Other args
         ddp_find_unused_parameters=False,
-        log_completions=True
+        log_completions=True,
+        use_vllm=True,
+        vllm_enable_prefix_caching=False
     )
 
 def train_model(config_path: str) -> None:
     """Main training routine."""
     cfg = load_config(config_path)
     
+    # figure out which process we're in
+    rank = int(os.environ.get("RANK", 0))
+    is_main = (rank == 0)
+
+    # only in the rank‑0 process
+    if is_main and "wandb" in cfg and cfg["wandb"].get("project"):
+        run = wandb.init(
+            project=cfg["wandb"]["project"],
+            name=cfg["wandb"].get("run_name"),
+            config=cfg,
+        )
+        # this will pin your YAML into the run's Files tab
+        wandb.save(config_path)
+    else:
+        os.environ["WANDB_MODE"] = "disabled"
+        
     # Logging
     base_output_dir = cfg["training"]["output_dir"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -86,10 +106,6 @@ def train_model(config_path: str) -> None:
         config_content = f.read()
     logging.info("Configuration file contents:\n%s", config_content)
     
-    # Weights & Biases:
-    if "wandb" in cfg and cfg["wandb"].get("project"):
-        os.environ["WANDB_PROJECT"] = cfg["wandb"]["project"]
-    
     # Prepare the dataset
     data = prepare_dataset(cfg)
     
@@ -97,7 +113,7 @@ def train_model(config_path: str) -> None:
     args = setup_training_args(cfg)
 
     # Model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"], attn_implementation='eager')
+    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"])
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["model_name_or_path"])
 
     trainer = GRPOTrainer(
