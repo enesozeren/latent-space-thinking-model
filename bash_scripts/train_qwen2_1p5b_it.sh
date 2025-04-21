@@ -1,21 +1,22 @@
 #!/bin/bash
-#SBATCH -p lrz-hgx-h100-94x4
+#SBATCH -p mcml-hgx-a100-80x4
+#SBATCH -q mcml
 #SBATCH --gres=gpu:4                # 1 for vLLM, 3 for training
 #SBATCH --time=0-02:00:00
-#SBATCH -o bash_outputs/output_gemma_3_1b_it_rl_chat.log
-#SBATCH -e bash_outputs/error_gemma_3_1b_it_rl_chat.log
+#SBATCH -o bash_outputs/output_qwen2_1p5b_it_rl_chat.log
+#SBATCH -e bash_outputs/error_qwen2_1p5b_it_rl_chat.log
 
 # Activate environment & set PYTHONPATH
 source activate latr
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config and number of processes for training
-CONFIG_PATH="src/configs/gemma_3_1b_it_rl.yaml"
+CONFIG_PATH="src/configs/qwen2_1p5b_it_rl.yaml"
 NUM_PROCESSES=3
 
 # 1) Launch vLLM server on GPU 0 with chat template support
 echo "Starting vLLM server on GPU 0..."
-CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model google/gemma-3-1b-it &
+CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model Qwen/Qwen2.5-1.5B-Instruct &
 VLLM_PID=$!
 
 # Give the server some time to initialize (adjust if needed)

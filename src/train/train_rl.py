@@ -34,6 +34,8 @@ def setup_training_args(config: dict) -> GRPOConfig:
         per_device_eval_batch_size=config["training"]["per_device_eval_batch_size"],
         gradient_accumulation_steps=config["training"]["gradient_accumulation_steps"],
         learning_rate=float(config["training"]["learning_rate"]),
+        lr_scheduler_type=config["training"]["lr_scheduler_type"],
+        lr_scheduler_kwargs=config["training"]["lr_scheduler_kwargs"],
         num_train_epochs=config["training"]["num_train_epochs"],
         logging_steps=config["training"]["logging_steps"],
         eval_steps=config["training"]["eval_steps"],

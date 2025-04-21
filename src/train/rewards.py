@@ -7,9 +7,11 @@ from math_verify import LatexExtractionConfig, parse, verify
 
 def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[str]) -> List[Optional[float]]:
     """Reward function that checks if the completion is the same as the ground truth"""
-
+    
+    contents = [completion[0]["content"] for completion in completions]
+    
     rewards: List[Optional[float]] = []
-    for comp, sol in zip(completions, answer):
+    for comp, sol in zip(contents, answer):
         # extract text
         text = comp.get("content", comp) if isinstance(comp, dict) else comp
         
@@ -103,8 +105,9 @@ def format_reward(completions: List[Union[str, dict]], **kwargs) -> List[float]:
         re.DOTALL
     )
 
+    contents = [completion[0]["content"] for completion in completions]
     rewards: List[float] = []
-    for comp in completions:
+    for comp in contents:
         # support dict-based or plain-string completions
         content = comp.get("content", comp) if isinstance(comp, dict) else comp
 

@@ -10,7 +10,7 @@ def prepare_dataset(config: dict) -> DatasetDict:
     )
 
     # Train/val split
-    split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=42)
+    split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=config["training"]["seed"])
 
     processed = {
         "train": split_ds["train"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
@@ -32,9 +32,12 @@ def _gsm8k_to_grpo(example: dict) -> dict:
     question = example["question"].strip()
     answer = _extract_gsm8k_answer(example["answer"])
     
-    # Append the question to the system prompt
-    # The new system prompt already ends with "User: ", so just append the question
-    prompt = SYSTEM_PROMPT + f"User: {question}" + "\nAssistant: "
+    # Create chat messages list for Gemma-3-1b-it chat template
+    # Messages list for chat-based processing; apply_chat_template will add the assistant prompt
+    prompt = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
     
     return {
         "prompt": prompt,
