@@ -34,7 +34,7 @@ def _gsm8k_to_grpo(example: dict) -> dict:
     
     # Append the question to the system prompt
     # The new system prompt already ends with "User: ", so just append the question
-    prompt = SYSTEM_PROMPT + f"User: {question}" + "\nAssistant:"
+    prompt = SYSTEM_PROMPT + f"User: {question}" + "\nAssistant: "
     
     return {
         "prompt": prompt,
