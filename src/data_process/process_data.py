@@ -1,5 +1,5 @@
 from datasets import load_dataset, DatasetDict
-from prompts.prompts import SYSTEM_PROMPT
+from prompts.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_LATENT_REASONER
 import logging
 
 def prepare_dataset(config: dict) -> DatasetDict:
@@ -32,10 +32,8 @@ def _gsm8k_to_grpo(example: dict) -> dict:
     question = example["question"].strip()
     answer = _extract_gsm8k_answer(example["answer"])
     
-    # Create chat messages list for Gemma-3-1b-it chat template
-    # Messages list for chat-based processing; apply_chat_template will add the assistant prompt
     prompt = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT_LATENT_REASONER},
         {"role": "user", "content": question},
     ]
     
