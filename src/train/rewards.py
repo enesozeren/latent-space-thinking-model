@@ -5,10 +5,17 @@ from typing import Optional, List, Union
 from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
-def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[str]) -> List[Optional[float]]:
+def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dict]]], answer: List[str]) -> List[Optional[float]]:
     """Reward function that checks if the completion is the same as the ground truth"""
     
-    contents = [completion[0]["content"] for completion in completions]
+    # Handle both string completions (base models) and chat completions (instruction-tuned models)
+    contents = []
+    for completion in completions:
+        if isinstance(completion, str):
+            contents.append(completion)
+        else:
+            # For chat format (list of dicts)
+            contents.append(completion[0]["content"])
     
     rewards: List[Optional[float]] = []
     for comp, sol in zip(contents, answer):
@@ -88,7 +95,7 @@ def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[
     return rewards
 
 
-def format_reward(completions: List[Union[str, dict]], **kwargs) -> List[float]:
+def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> List[float]:
     """
     Reward function that checks for:
       - Exactly one <think>…</think> and one <answer>…</answer>.
@@ -105,26 +112,37 @@ def format_reward(completions: List[Union[str, dict]], **kwargs) -> List[float]:
         re.DOTALL
     )
 
-    contents = [completion[0]["content"] for completion in completions]
+    # Handle both string completions (base models) and chat completions (instruction-tuned models)
+    contents = []
+    for completion in completions:
+        if isinstance(completion, str):
+            contents.append(completion)
+        elif isinstance(completion, list):
+            # For chat format (list of dicts)
+            contents.append(completion[0]["content"])
+        else:
+            # For direct dict format
+            contents.append(completion.get("content", completion))
+
     rewards: List[float] = []
-    for comp in contents:
+    for content in contents:
         # support dict-based or plain-string completions
-        content = comp.get("content", comp) if isinstance(comp, dict) else comp
+        text = content.get("content", content) if isinstance(content, dict) else content
 
         # 1) must have exactly one <think>…</think>
-        all_thinks = re.findall(r"<think>.*?</think>", content, re.DOTALL)
+        all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
         if len(all_thinks) != 1:
             rewards.append(0.0)
             continue
 
         # 2) must have exactly one <answer>…</answer>
-        all_answers = re.findall(r"<answer>.*?</answer>", content, re.DOTALL)
+        all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_answers) != 1:
             rewards.append(0.0)
             continue
 
         # 3) strip and apply patterns
-        stripped = content.strip()
+        stripped = text.strip()
         if full_pattern.match(stripped):
             rewards.append(1.0)
         elif partial_pattern.match(stripped):

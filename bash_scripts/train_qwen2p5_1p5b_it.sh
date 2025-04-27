@@ -11,7 +11,7 @@ source activate latr
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config and number of processes for training
-CONFIG_PATH="src/configs/qwen2_1p5b_it_rl.yaml"
+CONFIG_PATH="src/configs/qwen2p5_1p5b_it_rl.yaml"
 NUM_PROCESSES=3
 
 # 1) Launch vLLM server on GPU 0 with chat template support

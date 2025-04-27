@@ -1,5 +1,5 @@
 from datasets import load_dataset, DatasetDict
-from prompts.prompts import SYSTEM_PROMPT
+from prompts.prompts import (SYSTEM_PROMPT)
 import logging
 
 def prepare_dataset(config: dict) -> DatasetDict:
@@ -12,10 +12,22 @@ def prepare_dataset(config: dict) -> DatasetDict:
     # Train/val split
     split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=config["training"]["seed"])
 
+    # Get model_type if specified, default to "it" (instruction tuned)
+    model_type = config["model"].get("model_type", "it")
+    
     processed = {
-        "train": split_ds["train"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "validation": split_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "test": raw_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["test"].column_names),
+        "train": split_ds["train"].map(
+            lambda x: _gsm8k_to_grpo(x, model_type), 
+            remove_columns=raw_ds["train"].column_names
+        ),
+        "validation": split_ds["test"].map(
+            lambda x: _gsm8k_to_grpo(x, model_type), 
+            remove_columns=raw_ds["train"].column_names
+        ),
+        "test": raw_ds["test"].map(
+            lambda x: _gsm8k_to_grpo(x, model_type), 
+            remove_columns=raw_ds["test"].column_names
+        ),
     }
     
     # Log the dataset split sizes
@@ -27,22 +39,36 @@ def prepare_dataset(config: dict) -> DatasetDict:
 
     return DatasetDict(processed)
 
-def _gsm8k_to_grpo(example: dict) -> dict:
-    """Convert a GSM8K row → GRPO expected format using SYSTEM_PROMPT."""
+def _gsm8k_to_grpo(example: dict, model_type: str = "it") -> dict:
+    """Convert a GSM8K row → GRPO expected format.
+    
+    Args:
+        example: A GSM8K example
+        model_type: The model type, either "it" for instruction tuned models (default)
+                    or "base" for base models
+    """
     question = example["question"].strip()
     answer = _extract_gsm8k_answer(example["answer"])
     
-    # Create chat messages list for Gemma-3-1b-it chat template
-    # Messages list for chat-based processing; apply_chat_template will add the assistant prompt
-    prompt = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": question},
-    ]
-    
-    return {
-        "prompt": prompt,
-        "answer": answer,
-    }
+    if model_type == "it":
+        # For instruction-tuned models, use the chat template
+        prompt = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ]
+        return {
+            "prompt": prompt,
+            "answer": answer,
+        }
+    elif model_type == "base":
+        # For base models, use a simple text prompt without chat template
+        prompt = SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
+        return {
+            "prompt": prompt,
+            "answer": answer,
+        }
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
 
 def _extract_gsm8k_answer(raw_answer: str) -> str:
     """
