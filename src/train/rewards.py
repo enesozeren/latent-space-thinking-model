@@ -36,15 +36,23 @@ def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dic
         content = content.strip()
         sol_str = str(sol).strip()
 
-        # pull out what's in the \boxed{…}
-        m_box = re.search(r"\\boxed\{(.*?)\}", content, re.DOTALL)
+        # pull out what's in the \boxed{…} - using a better regex to handle nested braces
+        boxed_pattern = r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
+        m_box = re.search(boxed_pattern, content, re.DOTALL)
         if not m_box:
             # no boxed expression → zero reward
             rewards.append(0.0)
             continue
         
-        # 1) try plain numeric comparison
+        # Extract boxed content
         boxed_content = m_box.group(1).strip()
+        
+        # 0) Direct string comparison for simple string answers like "C", "Yes", etc.
+        if boxed_content.lower() == sol_str.lower():
+            rewards.append(1.0)
+            continue
+        
+        # 1) try plain numeric comparison
         try:
             if float(boxed_content) == float(sol_str):
                 rewards.append(1.0)
@@ -153,12 +161,22 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
     return rewards
 
 # # Example
-# ANSWER="""
-# <think> reasoning </think>
-# <answer> result is \\boxed{42} </answer>
+# # === Example 2: Symbolic expression ===
+# RESPONSE2 = """
+# <think>
+# Compute bla bla
+# </think>
+# <answer>
+# Hence the closed form is \\boxed{m^2 + 1 = 0}.
+# </answer>
 # """
-# print(ANSWER)
-# f_reward = format_reward(completions=[ANSWER])
-# print("format reward:", f_reward)
-# a_reward = accuracy_reward(prompts=[""], completions=[ANSWER], answer=["42"])
-# print("accuracy reward:", a_reward)
+
+# # Ground-truth answer for accuracy_reward:
+# ANSWER2 = "m^2 + 1 = 0"
+
+# # Run the checks
+# for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
+#     f_r = format_reward(completions=[resp])
+#     a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
+#     print(f"Example {i} format_reward: {f_r}")
+#     print(f"Example {i} accuracy_reward: {a_r}")

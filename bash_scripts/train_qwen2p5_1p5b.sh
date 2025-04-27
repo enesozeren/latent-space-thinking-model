@@ -1,10 +1,9 @@
 #!/bin/bash
-#SBATCH -p mcml-hgx-a100-80x4
-#SBATCH -q mcml
+#SBATCH -p lrz-dgx-a100-80x8
 #SBATCH --gres=gpu:4                # 1 for vLLM, 3 for training
 #SBATCH --time=0-02:00:00
-#SBATCH -o bash_outputs/output_qwen2p5_1p5b_rl_chat.log
-#SBATCH -e bash_outputs/error_qwen2p5_1p5b_rl_chat.log
+#SBATCH -o bash_outputs/output_qwen2p5_1p5b_rl.log
+#SBATCH -e bash_outputs/error_qwen2p5_1p5b_rl.log
 
 # Activate environment & set PYTHONPATH
 source activate latr

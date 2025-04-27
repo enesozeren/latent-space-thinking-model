@@ -3,8 +3,7 @@ model:
   model_type: "it" # should be it or base
 
 dataset:
-  name: "openai/gsm8k"
-  subname: "main"
+  name: "zwhe99/DeepMath-103K" # Only works with this dataset
 
 training:
   seed: 42
@@ -36,4 +35,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: qwen2p5_1p5b_it_rl_gsm
+  run_name: qwen2p5_1p5b_it_rl_deepmath

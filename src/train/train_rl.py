@@ -135,7 +135,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/gemma_3_1b_it_rl.yaml",
+        default="src/configs/qwen2p5_1p5b_rl.yaml",
         help="Path to the configuration YAML file",
     )
     return parser.parse_args()

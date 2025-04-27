@@ -2,8 +2,7 @@ model:
   model_name_or_path: "google/gemma-3-1b-pt"
 
 dataset:
-  name: "openai/gsm8k"
-  subname: "main"
+  name: "zwhe99/DeepMath-103K" # Only works with this dataset
 
 training:
   seed: 42
@@ -32,4 +31,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: gemma-3-1b-pt-rl-gsm
+  run_name: gemma_3_1b_pt_rl_deepmath

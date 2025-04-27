@@ -3,31 +3,24 @@ from prompts.prompts import (SYSTEM_PROMPT)
 import logging
 
 def prepare_dataset(config: dict) -> DatasetDict:
-    """Load GSM8K and re‑format into the columns GRPOTrainer expects."""
-    raw_ds = load_dataset(
-        config["dataset"]["name"],
-        config["dataset"].get("subname", None),
-    )
-
-    # Train/val split
+    """Load DeepMath-103K dataset and re‑format into the columns GRPOTrainer expects."""
+    raw_ds = load_dataset(config["dataset"]["name"])
+    
+    # Since there's only a train split in DeepMath-103K, create train/val splits
     split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=config["training"]["seed"])
-
+    
     # Get model_type if specified, default to "it" (instruction tuned)
     model_type = config["model"].get("model_type", "it")
     
     processed = {
         "train": split_ds["train"].map(
-            lambda x: _gsm8k_to_grpo(x, model_type), 
+            lambda x: _deepmath_to_grpo(x, model_type), 
             remove_columns=raw_ds["train"].column_names
         ),
         "validation": split_ds["test"].map(
-            lambda x: _gsm8k_to_grpo(x, model_type), 
+            lambda x: _deepmath_to_grpo(x, model_type), 
             remove_columns=raw_ds["train"].column_names
-        ),
-        "test": raw_ds["test"].map(
-            lambda x: _gsm8k_to_grpo(x, model_type), 
-            remove_columns=raw_ds["test"].column_names
-        ),
+        )
     }
     
     # Log the dataset split sizes
@@ -35,20 +28,19 @@ def prepare_dataset(config: dict) -> DatasetDict:
     logger.info("Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
-    logger.info(f"  Test: {len(processed['test'])} examples")
 
     return DatasetDict(processed)
 
-def _gsm8k_to_grpo(example: dict, model_type: str = "it") -> dict:
-    """Convert a GSM8K row → GRPO expected format.
+def _deepmath_to_grpo(example: dict, model_type: str = "base") -> dict:
+    """Convert a DeepMath-103K row → GRPO expected format.
     
     Args:
-        example: A GSM8K example
+        example: A DeepMath-103K example
         model_type: The model type, either "it" for instruction tuned models (default)
                     or "base" for base models
     """
     question = example["question"].strip()
-    answer = _extract_gsm8k_answer(example["answer"])
+    answer = example["final_answer"].strip()
     
     if model_type == "it":
         # For instruction-tuned models, use the chat template
@@ -70,6 +62,7 @@ def _gsm8k_to_grpo(example: dict, model_type: str = "it") -> dict:
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
+# Keep the _extract_gsm8k_answer function for backward compatibility
 def _extract_gsm8k_answer(raw_answer: str) -> str:
     """
     Extract the canonical short answer from a GSM8K solution string.
