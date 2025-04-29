@@ -1,8 +1,7 @@
 #!/bin/bash
-#SBATCH -p mcml-dgx-a100-40x8
-#SBATCH -q mcml
-#SBATCH --gres=gpu:4
-#SBATCH --time=0-00:30:00
+#SBATCH -p lrz-hgx-h100-94x4
+#SBATCH --gres=gpu:2
+#SBATCH --time=0-01:30:00
 #SBATCH -o bash_outputs/output_qwen_it_gsm8k_eval.log
 #SBATCH -e bash_outputs/error_qwen_it_gsm8k_eval.log
 
@@ -18,18 +17,18 @@ MODEL_TYPE="it"  # Instruction-tuned model
 OUTPUT_DIR="outputs"
 
 # Evaluation parameters
-DATASET="math500"
+DATASET="gsm8k"
 BATCH_SIZE=64
-MAX_LENGTH=2048
+MAX_LENGTH=4096
 TEMPERATURE=0.2
 TOP_P=0.95
 SPLIT="test"
-# NUM_EXAMPLES=128  # Set to specific number or remove this parameter to evaluate on all examples
+# NUM_EXAMPLES=256  # Set to specific number or remove this parameter to evaluate on all examples
 
 echo "Starting evaluation of $MODEL_NAME on $DATASET"
 
 # Run evaluation script
-CUDA_VISIBLE_DEVICES=0,1,2,3 python src/eval/eval_gsm8k.py \
+CUDA_VISIBLE_DEVICES=0,1 python src/eval/eval_gsm8k.py \
     --model_name_or_path $MODEL_NAME \
     --dataset $DATASET \
     --model_type $MODEL_TYPE \
@@ -40,6 +39,6 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python src/eval/eval_gsm8k.py \
     --split $SPLIT \
     --output_dir $OUTPUT_DIR \
     --device_map "auto"
-    # --num_examples $NUM_EXAMPLES \    
+    # --num_examples $NUM_EXAMPLES 
 
 echo "Evaluation complete! Results saved to $OUTPUT_DIR"

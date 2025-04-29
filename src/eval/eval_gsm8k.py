@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import List, Dict, Any, Union, Optional, Tuple
 
 import torch
+import random
+import numpy as np
+from transformers import set_seed
 import wandb
+import yaml
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -147,6 +151,12 @@ def parse_args():
         type=str,
         default=None,
         help="W&B run name (default: model_name_dataset_eval)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility",
     )
     parser.add_argument(
         "--no_wandb",
@@ -285,21 +295,16 @@ def generate_responses(
         
         # Decode outputs
         batch_responses = []
-        for i, output in enumerate(outputs):
-            if model_type == "it":
-                # For instruction-tuned models, find assistant's response
-                full_response = tokenizer.decode(output, skip_special_tokens=True)
-                # Extract assistant's part (this may need customization based on model)
-                assistant_response = full_response.split("assistant")[-1].strip()
-                if assistant_response.startswith(":"):
-                    assistant_response = assistant_response[1:].strip()
-                batch_responses.append(assistant_response)
-            else:
-                # For base models, remove the input prompt
-                full_response = tokenizer.decode(output, skip_special_tokens=True)
-                prompt_text = tokenizer.decode(inputs["input_ids"][i], skip_special_tokens=True) if isinstance(inputs, dict) else tokenizer.decode(inputs[i], skip_special_tokens=True)
-                assistant_response = full_response[len(prompt_text):].strip()
-                batch_responses.append(assistant_response)
+        for j, output in enumerate(outputs):
+            # Get the length of input tokens for this example
+            input_length = inputs["input_ids"][j].size(0) if isinstance(inputs, dict) else inputs[j].size(0)
+            
+            # Get only the generated tokens (excluding input)
+            response_tokens = output[input_length:]
+            
+            # Decode only the response part
+            assistant_response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
+            batch_responses.append(assistant_response)
         
         responses.extend(batch_responses)
     
@@ -401,7 +406,7 @@ def clean_answer_text(text: str) -> str:
     cleaned = re.sub(r"(answer|is|equals|=|:|\.|\,)", "", text.lower())
     return cleaned.strip()
 
-def evaluate_responses(predicted_answers: List[str], ground_truth: List[str], full_responses: List[str]) -> Dict[str, float]:
+def evaluate_responses(predicted_answers: List[str], ground_truth: List[str], full_responses: List[str], tokenizer=None) -> Dict[str, float]:
     """Evaluate model predictions against ground truth answers."""
     correct = 0
     total = len(ground_truth)
@@ -411,6 +416,9 @@ def evaluate_responses(predicted_answers: List[str], ground_truth: List[str], fu
     has_answer_tag = 0
     has_boxed = 0
     fully_formatted = 0
+    
+    # Calculate average response token length
+    total_token_length = 0
     
     for pred, gt, full_resp in zip(predicted_answers, ground_truth, full_responses):
         # Check answer correctness
@@ -437,13 +445,20 @@ def evaluate_responses(predicted_answers: List[str], ground_truth: List[str], fu
             has_boxed += 1
         if has_think and has_answer and has_box:
             fully_formatted += 1
+            
+        # Add response token length if tokenizer is provided
+        if tokenizer is not None:
+            tokens = tokenizer.encode(full_resp)
+            total_token_length += len(tokens)
     
     accuracy = correct / total if total > 0 else 0
+    avg_token_length = total_token_length / total if total > 0 and tokenizer is not None else 0
     
     return {
         "accuracy": accuracy,
         "correct": correct,
         "total": total,
+        "avg_token_length": avg_token_length,
         "format_metrics": {
             "has_think_tag_pct": has_think_tag / total if total > 0 else 0,
             "has_answer_tag_pct": has_answer_tag / total if total > 0 else 0,
@@ -499,7 +514,11 @@ def save_results(
     config_path = output_dir / "config.json"
     with open(config_path, "w") as f:
         json.dump(vars(args), f, indent=2)
-    
+    # Save config as YAML
+    config_yaml_path = output_dir / "config.yaml"
+    with open(config_yaml_path, "w") as f:
+        yaml.safe_dump(vars(args), f)
+
     # Log to W&B if not disabled
     if not args.no_wandb:
         # Initialize wandb if not already running
@@ -531,6 +550,8 @@ def save_results(
         wandb.save(str(metrics_path))
         wandb.save(str(examples_path))
         wandb.save(str(config_path))
+        # Upload YAML config to wandb
+        wandb.save(str(config_yaml_path))
         
         logger.info(f"Results saved to {output_dir} and logged to W&B")
     else:
@@ -576,9 +597,15 @@ def main():
     args = parse_args()
     
     # Set random seed for reproducibility
-    torch.manual_seed(42)
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    set_seed(args.seed)
+    # Ensure deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+        torch.cuda.manual_seed_all(args.seed)
     
     # Load appropriate dataset based on user selection
     if args.dataset == "gsm8k":
@@ -615,8 +642,8 @@ def main():
     # Extract answers from responses
     extracted_answers = [extract_answer_from_response(resp) for resp in responses]
     
-    # Evaluate responses
-    metrics = evaluate_responses(extracted_answers, dataset["answers"], responses)
+    # Evaluate responses - now passing tokenizer for token length calculation
+    metrics = evaluate_responses(extracted_answers, dataset["answers"], responses, tokenizer)
     metrics["generation_time"] = generation_time
     metrics["examples_per_second"] = len(dataset["questions"]) / generation_time
     
@@ -631,6 +658,9 @@ def main():
     logger.info(f"  Has <answer> tags: {format_metrics['has_answer_tag_pct']:.2%} ({format_metrics['has_answer_tag']}/{metrics['total']})")
     logger.info(f"  Has \\boxed{{}} syntax: {format_metrics['has_boxed_pct']:.2%} ({format_metrics['has_boxed']}/{metrics['total']})")
     logger.info(f"  Fully formatted: {format_metrics['fully_formatted_pct']:.2%} ({format_metrics['fully_formatted']}/{metrics['total']})")
+    
+    # Log token length metric
+    logger.info(f"  Average response token length: {metrics.get('avg_token_length', 0):.2f} tokens")
     
     logger.info(f"  Generation time: {generation_time:.2f}s")
     logger.info(f"  Examples per second: {metrics['examples_per_second']:.2f}")
