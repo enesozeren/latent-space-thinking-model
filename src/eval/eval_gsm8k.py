@@ -22,8 +22,6 @@ import numpy as np
 from transformers import set_seed
 import wandb
 import yaml
-from datasets import load_dataset
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
     AutoModelForCausalLM,
@@ -32,7 +30,8 @@ from transformers import (
     PreTrainedTokenizer,
 )
 
-from prompts.prompts import SYSTEM_PROMPT
+from prompts.prompts import SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL
+from src.data_process.process_data_eval import prepare_gsm8k_dataset, prepare_math500_dataset
 
 # Configure logging
 import logging
@@ -43,6 +42,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Disable flash SDP and enable math SDP for better performance
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(True)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate a model on mathematical reasoning benchmarks")
     
@@ -52,19 +57,6 @@ def parse_args():
         type=str,
         required=True,
         help="Path to a local model checkpoint or a model ID from Huggingface Hub",
-    )
-    parser.add_argument(
-        "--tokenizer_name_or_path",
-        type=str,
-        default=None,
-        help="Path to a tokenizer or tokenizer ID (defaults to model_name_or_path)",
-    )
-    parser.add_argument(
-        "--model_type",
-        type=str,
-        default="it",
-        choices=["base", "it"],
-        help="Model type: 'base' for base models, 'it' for instruction-tuned models",
     )
     
     # Dataset args
@@ -117,20 +109,6 @@ def parse_args():
         help="Limit evaluation to this many examples (default: use all examples)",
     )
     
-    # Hardware args
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device to use for evaluation",
-    )
-    parser.add_argument(
-        "--device_map",
-        type=str,
-        default=None,
-        help="Device map for model parallelism (e.g., 'auto', '0,1,2,3')",
-    )
-    
     # Output args
     parser.add_argument(
         "--output_dir",
@@ -166,84 +144,19 @@ def parse_args():
     
     return parser.parse_args()
 
-def prepare_gsm8k_dataset(split: str = "test", num_examples: Optional[int] = None):
-    """Load GSM8K dataset and prepare for evaluation."""
-    dataset = load_dataset("gsm8k", "main")
-    
-    # Get specified split
-    ds = dataset[split]
-    
-    # Limit to num_examples if specified
-    if num_examples is not None:
-        ds = ds.select(range(min(num_examples, len(ds))))
-    
-    # Extract questions and answers
-    questions = ds["question"]
-    answers = [_extract_gsm8k_answer(ans) for ans in ds["answer"]]
-    
-    logger.info(f"Loaded {len(questions)} examples from GSM8K {split} split")
-    return {"questions": questions, "answers": answers}
-
-def _extract_gsm8k_answer(raw_answer: str) -> str:
-    """
-    Extract the canonical short answer from a GSM8K solution string.
-
-    GSM8K places the final numeric answer after the delimiter '####', e.g.
-        "... reasoning ...\n#### 24"
-    We take everything after the *last* occurrence of that delimiter,
-    strip whitespace, and drop a trailing period if present.
-    """
-    if "####" in raw_answer:
-        answer = raw_answer.split("####")[-1]
-    else:
-        answer = raw_answer
-    answer = answer.strip()
-    if answer.endswith("."):
-        answer = answer[:-1].strip()
-    return answer
-
-def format_prompt(question: str, model_type: str = "it") -> Union[str, List[Dict[str, str]]]:
-    """Format the prompt based on model type."""
-    if model_type == "it":
-        # Format for instruction-tuned models (chat format)
-        return [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question}
-        ]
-    else:
-        # Format for base models
-        return SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
+def format_prompt(question: str) -> Union[str, List[Dict[str, str]]]:
+    # Format for base models
+    return SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL + "\nUser:" + question + "\nAssistant:"
 
 def load_model_and_tokenizer(args) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
     """Load model and tokenizer."""
     logger.info(f"Loading model from {args.model_name_or_path}")
     
-    # Determine device configuration
-    device_args = {}
-    if args.device_map is not None:
-        if args.device_map == "auto":
-            device_args["device_map"] = "auto"
-        else:
-            device_args["device_map"] = {int(i): i for i in args.device_map.split(",")}
-        logger.info(f"Using device map: {device_args['device_map']}")
-    else:
-        device_args["device_map"] = args.device
-        logger.info(f"Using device: {args.device}")
-    
-    # Load model with appropriate precision
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_name_or_path,
-        torch_dtype=torch.bfloat16,
-        **device_args,
-    )
+    # Load model
+    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, device_map="auto")
     
     # Load tokenizer
-    tokenizer_path = args.tokenizer_name_or_path or args.model_name_or_path
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-    
-    # Set padding token if needed
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, padding_side='left')
     
     return model, tokenizer
 
@@ -255,38 +168,26 @@ def generate_responses(
     max_length: int,
     temperature: float,
     top_p: float,
-    model_type: str,
 ) -> List[str]:
     """Generate responses in batches."""
     responses = []
     
+    # Move model to evaluation mode
+    model.eval()
+
     # Process in batches
     for i in tqdm(range(0, len(prompts), batch_size), desc="Generating responses"):
         batch_prompts = prompts[i:i+batch_size]
         
-        # Apply tokenizer based on model type
-        if model_type == "it":
-            # For instruction-tuned models, use chat_template
-            inputs = tokenizer.apply_chat_template(
-                batch_prompts, 
-                return_tensors="pt",
-                padding=True
-            ).to(model.device)
-        else:
-            # For base models, use regular tokenizer
-            inputs = tokenizer(
-                batch_prompts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True
-            ).to(model.device)
+        # For base models, use regular tokenizer
+        inputs = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True).to(device=model.device)
         
         # Generate responses
         with torch.no_grad():
             outputs = model.generate(
-                inputs["input_ids"] if isinstance(inputs, dict) else inputs,
-                attention_mask=inputs.get("attention_mask", None) if isinstance(inputs, dict) else None,
-                max_length=max_length,
+                inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                max_new_tokens=max_length,
                 temperature=temperature,
                 top_p=top_p,
                 pad_token_id=tokenizer.pad_token_id,
@@ -297,7 +198,7 @@ def generate_responses(
         batch_responses = []
         for j, output in enumerate(outputs):
             # Get the length of input tokens for this example
-            input_length = inputs["input_ids"][j].size(0) if isinstance(inputs, dict) else inputs[j].size(0)
+            input_length = inputs["input_ids"][j].size(0)
             
             # Get only the generated tokens (excluding input)
             response_tokens = output[input_length:]
@@ -313,7 +214,7 @@ def generate_responses(
 def extract_answer_from_response(response: str) -> str:
     """Extract final answer from model's response according to the expected format.
     
-    Expected format follows the SYSTEM_PROMPT:
+    Expected format follows the SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL:
     <think>reasoning process</think>
     <answer>\\boxed{final_answer}</answer>
     
@@ -559,32 +460,6 @@ def save_results(
         
     return output_dir
 
-def prepare_math500_dataset(split: str = "test", num_examples: Optional[int] = None):
-    """Load MATH-500 dataset and prepare for evaluation.
-    
-    The MATH-500 dataset has questions in the 'problem' field and answers in the 'answer' field.
-    Note that it only has a 'test' split.
-    """
-    if split != "test":
-        logger.warning(f"MATH-500 dataset only has a 'test' split. Using 'test' instead of requested '{split}'.")
-        split = "test"
-        
-    dataset = load_dataset("HuggingFaceH4/MATH-500")
-    
-    # Get test split (the only one available)
-    ds = dataset[split]
-    
-    # Limit to num_examples if specified
-    if num_examples is not None:
-        ds = ds.select(range(min(num_examples, len(ds))))
-    
-    # Extract questions and answers
-    questions = ds["problem"]
-    answers = ds["answer"]
-    
-    logger.info(f"Loaded {len(questions)} examples from MATH-500 dataset")
-    return {"questions": questions, "answers": answers}
-
 def safe_float_convert(value):
     """Safely convert a value to float, returning None if conversion fails."""
     try:
@@ -623,7 +498,7 @@ def main():
     model, tokenizer = load_model_and_tokenizer(args)
     
     # Format prompts
-    prompts = [format_prompt(q, args.model_type) for q in dataset["questions"]]
+    prompts = [format_prompt(q) for q in dataset["questions"]]
     
     # Generate responses
     start_time = time.time()
@@ -634,8 +509,7 @@ def main():
         batch_size=args.batch_size,
         max_length=args.max_length,
         temperature=args.temperature,
-        top_p=args.top_p,
-        model_type=args.model_type,
+        top_p=args.top_p
     )
     generation_time = time.time() - start_time
     
