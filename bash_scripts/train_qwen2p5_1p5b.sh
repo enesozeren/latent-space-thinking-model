@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -p lrz-dgx-a100-80x8
 #SBATCH --gres=gpu:8                # 2 for vLLM, 6 for training
-#SBATCH --time=0-03:00:00
-#SBATCH -o bash_outputs/output_qwen2p5_1p5b_rl_8gpu.log
-#SBATCH -e bash_outputs/error_qwen2p5_1p5b_rl_8gpu.log
+#SBATCH --time=0-08:00:00
+#SBATCH -o bash_outputs/output_qwen2p5_1p5b_rl_openr1data.log
+#SBATCH -e bash_outputs/error_qwen2p5_1p5b_rl_openr1data.log
 
 # Activate environment & set PYTHONPATH
 source activate latr
@@ -26,7 +26,7 @@ echo "Starting GRPO training"
 CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch \
     --num_processes $NUM_PROCESSES \
     src/train/train_rl.py --config $CONFIG_PATH
-
+    
 # 3) Clean up vLLM server
 echo "Training complete — shutting down vLLM server (PID $VLLM_PID)..."
 kill $VLLM_PID

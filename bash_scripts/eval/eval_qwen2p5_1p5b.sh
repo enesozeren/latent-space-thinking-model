@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH -p lrz-dgx-a100-80x8
-#SBATCH --gres=gpu:4
-#SBATCH --time=0-01:30:00
-#SBATCH -o bash_outputs/output_qwen_it_rl_gsm8k_eval_checkpoint400.log
-#SBATCH -e bash_outputs/error_qwen_it_rl_gsm8k_eval_checkpoint400.log
+#SBATCH --gres=gpu:2
+#SBATCH --time=0-01:15:00
+#SBATCH -o bash_outputs/output_qwen_gsm8k_eval.log
+#SBATCH -e bash_outputs/error_qwen_gsm8k_eval.log
 
 # Activate environment & set PYTHONPATH
 source activate latr
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Model details
-MODEL_PATH="/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen2p5_1p5b_it_rl/20250428_080522/checkpoint-400/"
+MODEL_NAME="Qwen/Qwen2.5-1.5B"
 
 # Output directory for results
 OUTPUT_DIR="outputs"
@@ -24,11 +24,11 @@ TOP_P=0.95
 SPLIT="test"
 # NUM_EXAMPLES=64  # Set to specific number or remove this parameter to evaluate on all examples
 
-echo "Starting evaluation of $MODEL_PATH on $DATASET"
+echo "Starting evaluation of $MODEL_NAME on $DATASET"
 
 # Run evaluation script
-CUDA_VISIBLE_DEVICES=0,1,2,3 python src/eval/eval_gsm8k.py \
-    --model_name_or_path $MODEL_PATH \
+CUDA_VISIBLE_DEVICES=0,1 python src/eval/eval_gsm8k.py \
+    --model_name_or_path $MODEL_NAME \
     --dataset $DATASET \
     --batch_size $BATCH_SIZE \
     --max_length $MAX_LENGTH \

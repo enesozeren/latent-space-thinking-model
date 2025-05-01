@@ -6,8 +6,16 @@ from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
 def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dict]]], answer: List[str]) -> List[Optional[float]]:
-    """Reward function that checks if the completion is the same as the ground truth"""
-    
+    """
+    Reward function that checks for:
+      - Exact match => 1.0
+      - Latex Verified => 0.75
+      - Otherwise => 0.0
+    """
+    full_reward = 1.0
+    partial_reward = 0.75
+    zero_reward = 0.0
+
     # Handle both string completions (base models) and chat completions (instruction-tuned models)
     contents = []
     for completion in completions:
@@ -26,7 +34,7 @@ def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dic
         all_ans = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_ans) != 1:
             # zero reward if there are none or more than one
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
         
         # now we know there's exactly one <answer>…</answer>, so extract it
@@ -41,7 +49,7 @@ def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dic
         m_box = re.search(boxed_pattern, content, re.DOTALL)
         if not m_box:
             # no boxed expression → zero reward
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
         
         # Extract boxed content
@@ -49,19 +57,20 @@ def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dic
         
         # 0) Direct string comparison for simple string answers like "C", "Yes", etc.
         if boxed_content.lower() == sol_str.lower():
-            rewards.append(1.0)
+            rewards.append(full_reward)
             continue
         
         # 1) try plain numeric comparison
         try:
             if float(boxed_content) == float(sol_str):
-                rewards.append(1.0)
+                rewards.append(full_reward)
                 continue
         except ValueError:
             # e.g. boxed_content == '84/2'
             pass
 
         # 2) fallback to symbolic equivalence check
+        sol_str = f'${sol_str}$' # add $ to make it a valid latex expression
         sol_parsed = parse(sol_str, extraction_mode="first_match")
         if sol_parsed is None:
             rewards.append(None)
@@ -87,18 +96,18 @@ def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dic
         )
         if content_parsed is None:
             # if the content is not parseable
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
         try:
             if verify(sol_parsed, content_parsed):
                 # if the verification passes, we can verify it but it is not perfect match
-                rewards.append(0.5)
+                rewards.append(partial_reward)
             else:
                 # if the verification fails, the content is not correct
-                rewards.append(0.0)
+                rewards.append(zero_reward)
         except Exception as e:
             # if the verification fails
-            rewards.append(0.0)
+            rewards.append(zero_reward)
 
     return rewards
 
@@ -107,10 +116,14 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
     """
     Reward function that checks for:
       - Exactly one <think>…</think> and one <answer>…</answer>.
-      - Full match: <think>…</think> immediately followed by <answer>…\\boxed{…}…</answer>  => 1.0
-      - Partial match: <think>…</think> immediately followed by <answer>…</answer> (no \\boxed) => 0.5
-      - Otherwise => 0.0
+      - Full match: <think>…</think> immediately followed by <answer>…\\boxed{…}…</answer>
+      - Partial match: <think>…</think> immediately followed by <answer>…</answer> (no \\boxed)
+      - Otherwise => Zero reward
     """
+    full_reward = 1.0
+    partial_reward = 0.5
+    zero_reward = 0.0
+
     full_pattern = re.compile(
         r"^<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
         re.DOTALL
@@ -140,39 +153,37 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
         # 1) must have exactly one <think>…</think>
         all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
         if len(all_thinks) != 1:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
 
         # 2) must have exactly one <answer>…</answer>
         all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_answers) != 1:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
 
         # 3) strip and apply patterns
         stripped = text.strip()
         if full_pattern.match(stripped):
-            rewards.append(1.0)
+            rewards.append(full_reward)
         elif partial_pattern.match(stripped):
-            rewards.append(0.5)
+            rewards.append(partial_reward)
         else:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
 
     return rewards
 
 # # Example
 # # === Example 2: Symbolic expression ===
-# RESPONSE2 = """
-# <think>
-# Compute bla bla
-# </think>
+# RESPONSE2 = r"""
+# <think> sd </think>
 # <answer>
-# Hence the closed form is \\boxed{m^2 + 1 = 0}.
+# reasoning process here \\boxed{-\dfrac{1}{4}}
 # </answer>
 # """
 
 # # Ground-truth answer for accuracy_reward:
-# ANSWER2 = "m^2 + 1 = 0"
+# ANSWER2 = r"-\dfrac{1}{4}"
 
 # # Run the checks
 # for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):

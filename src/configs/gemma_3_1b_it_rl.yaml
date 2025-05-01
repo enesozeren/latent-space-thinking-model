@@ -2,7 +2,7 @@ model:
   model_name_or_path: "google/gemma-3-1b-it"
 
 dataset:
-  name: "zwhe99/DeepMath-103K" # Only works with this dataset
+  name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
 
 training:
   seed: 42
