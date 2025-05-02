@@ -1,11 +1,15 @@
-from typing import List, Dict, Any, Union, Optional, Tuple
+from typing import Optional
 from datasets import load_dataset
 import logging
 logger = logging.getLogger(__name__)
 
-def prepare_gsm8k_dataset(split: str = "test", num_examples: Optional[int] = None):
-    """Load GSM8K dataset and prepare for evaluation."""
-    dataset = load_dataset("gsm8k", "main")
+def prepare_dataset(dataset_name: str, split: str = "test", num_examples: Optional[int] = None):
+    """Load the dataset and prepare for evaluation."""
+    
+    if dataset_name == "openai/gsm8k":
+        dataset = load_dataset("openai/gsm8k", "main")
+    elif dataset_name == "HuggingFaceH4/MATH-500":
+        dataset = load_dataset("HuggingFaceH4/MATH-500")
     
     # Get specified split
     ds = dataset[split]
@@ -15,10 +19,15 @@ def prepare_gsm8k_dataset(split: str = "test", num_examples: Optional[int] = Non
         ds = ds.select(range(min(num_examples, len(ds))))
     
     # Extract questions and answers
-    questions = ds["question"]
-    answers = [_extract_gsm8k_answer(ans) for ans in ds["answer"]]
+    if dataset_name == "openai/gsm8k":
+        questions = ds["question"]
+        answers = [_extract_gsm8k_answer(ans) for ans in ds["answer"]]
+    elif dataset_name == "HuggingFaceH4/MATH-500":
+        questions = ds["problem"]
+        answers = ds["answer"]
     
-    logger.info(f"Loaded {len(questions)} examples from GSM8K {split} split")
+    logger.info(f"Loaded {len(questions)} examples from {dataset_name} {split} split")
+
     return {"questions": questions, "answers": answers}
 
 def _extract_gsm8k_answer(raw_answer: str) -> str:
@@ -38,29 +47,3 @@ def _extract_gsm8k_answer(raw_answer: str) -> str:
     if answer.endswith("."):
         answer = answer[:-1].strip()
     return answer
-
-def prepare_math500_dataset(split: str = "test", num_examples: Optional[int] = None):
-    """Load MATH-500 dataset and prepare for evaluation.
-    
-    The MATH-500 dataset has questions in the 'problem' field and answers in the 'answer' field.
-    Note that it only has a 'test' split.
-    """
-    if split != "test":
-        logger.warning(f"MATH-500 dataset only has a 'test' split. Using 'test' instead of requested '{split}'.")
-        split = "test"
-        
-    dataset = load_dataset("HuggingFaceH4/MATH-500")
-    
-    # Get test split (the only one available)
-    ds = dataset[split]
-    
-    # Limit to num_examples if specified
-    if num_examples is not None:
-        ds = ds.select(range(min(num_examples, len(ds))))
-    
-    # Extract questions and answers
-    questions = ds["problem"]
-    answers = ds["answer"]
-    
-    logger.info(f"Loaded {len(questions)} examples from MATH-500 dataset")
-    return {"questions": questions, "answers": answers}

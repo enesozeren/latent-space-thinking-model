@@ -1,5 +1,5 @@
 """
-Evaluate models on GSM8K benchmark.
+Evaluate models on openai/gsm8k and HuggingFaceH4/MATH-500
 
 This script can evaluate:
 1. Local model checkpoints from huggingface trl GRPO trainer
@@ -30,8 +30,11 @@ from transformers import (
     PreTrainedTokenizer,
 )
 
-from prompts.prompts import SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL
-from src.data_process.process_data_eval import prepare_gsm8k_dataset, prepare_math500_dataset
+from prompts.prompts import (
+    SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL, 
+    SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+)
+from src.data_process.process_data_eval import prepare_dataset
 
 # Configure logging
 import logging
@@ -63,9 +66,9 @@ def parse_args():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="gsm8k",
-        choices=["gsm8k", "math500"],
-        help="Dataset to evaluate on: 'gsm8k' for GSM8K, 'math500' for HuggingFaceH4/MATH-500",
+        default="openai/gsm8k",
+        choices=["openai/gsm8k", "HuggingFaceH4/MATH-500"],
+        help="Dataset to evaluate on: 'gsm8k' for openai/gsm8k, 'math500' for HuggingFaceH4/MATH-500",
     )
     
     # Generation args
@@ -144,9 +147,14 @@ def parse_args():
     
     return parser.parse_args()
 
-def format_prompt(question: str) -> Union[str, List[Dict[str, str]]]:
-    # Format for base models
-    return SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL + "\nUser:" + question + "\nAssistant:"
+def format_prompt(question: str, dataset_name: str) -> Union[str, List[Dict[str, str]]]:
+    """Format the prompt for the model based on the dataset."""
+    if dataset_name == "openai/gsm8k":
+        system_prompt_for_eval = SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL
+    elif dataset_name == "HuggingFaceH4/MATH-500":
+        system_prompt_for_eval = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+    
+    return system_prompt_for_eval + "\nUser:" + question + "\nAssistant:"
 
 def load_model_and_tokenizer(args) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
     """Load model and tokenizer."""
@@ -214,7 +222,7 @@ def generate_responses(
 def extract_answer_from_response(response: str) -> str:
     """Extract final answer from model's response according to the expected format.
     
-    Expected format follows the SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL:
+    Expected format follows:
     <think>reasoning process</think>
     <answer>\\boxed{final_answer}</answer>
     
@@ -483,22 +491,18 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
     
     # Load appropriate dataset based on user selection
-    if args.dataset == "gsm8k":
-        dataset = prepare_gsm8k_dataset(args.split, args.num_examples)
-        dataset_display_name = "GSM8K"
-    elif args.dataset == "math500":
-        dataset = prepare_math500_dataset(args.split, args.num_examples)
-        dataset_display_name = "MATH-500" 
+    if args.dataset in ("openai/gsm8k", "HuggingFaceH4/MATH-500"):
+        dataset = prepare_dataset(args.dataset, args.split, args.num_examples)
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}")
     
-    logger.info(f"Evaluating on {dataset_display_name} dataset")
+    logger.info(f"Evaluating on {args.dataset} dataset")
     
     # Load model and tokenizer
     model, tokenizer = load_model_and_tokenizer(args)
     
     # Format prompts
-    prompts = [format_prompt(q) for q in dataset["questions"]]
+    prompts = [format_prompt(q, args.dataset) for q in dataset["questions"]]
     
     # Generate responses
     start_time = time.time()
@@ -522,7 +526,7 @@ def main():
     metrics["examples_per_second"] = len(dataset["questions"]) / generation_time
     
     # Log metrics
-    logger.info(f"Evaluation metrics on {dataset_display_name}:")
+    logger.info(f"Evaluation metrics on {args.dataset}:")
     logger.info(f"  Accuracy: {metrics['accuracy']:.4f} ({metrics['correct']}/{metrics['total']})")
     
     # Log format compliance metrics
