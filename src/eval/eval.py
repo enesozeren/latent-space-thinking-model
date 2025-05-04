@@ -1,386 +1,279 @@
 """
 Evaluate models on openai/gsm8k and HuggingFaceH4/MATH-500
-
-This script can evaluate:
-1. Local model checkpoints from huggingface trl GRPO trainer
-2. Models directly from huggingface hub
+----------------------------------------------------------
+* Generate NUM_SAMPLES answers for every question.
+* Compute accuracy of the first answer and pass@k.
 """
 
+# ──────────────────────────────────────────────────────────────────────────────
+NUM_SAMPLES        = 4          # number of answers generated per question
+PASS_AT_K_VALUES   = [1, 4]     # which pass@k metrics to compute
+# ──────────────────────────────────────────────────────────────────────────────
+
 import argparse
-import re
-import sys
-import time
-
-from typing import List, Dict, Any, Union, Optional, Tuple
-
-import torch
-import random
-import numpy as np
-from transformers import set_seed
-import yaml
+import re, sys, time, random, logging
+from typing import List, Dict, Any, Optional
 from tqdm import tqdm
+
+import torch, numpy as np
 from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    PreTrainedModel,
-    PreTrainedTokenizer,
+    AutoModelForCausalLM, AutoTokenizer,
+    set_seed, PreTrainedModel, PreTrainedTokenizer
 )
+
+from math import comb
 from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
 from prompts.prompts import (
-    SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL, 
+    SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL,
     SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
 )
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
 
-# Configure logging
-import logging
+# logging setup ───────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper / metric functions
+# ──────────────────────────────────────────────────────────────────────────────
+def answer_is_correct(pred: str, gt: str) -> bool:
+    """Exact or symbolic match between *one* prediction and ground truth."""
+    if pred.lower() == gt.lower():
+        return True
+    gt_parsed = parse(f'${gt}$', extraction_mode="first_match")
+    pred_parsed = parse(
+        pred,
+        extraction_config=[ LatexExtractionConfig(
+            normalization_config=NormalizationConfig(
+                nits=False, malformed_operators=False,
+                basic_latex=True, equations=True,
+                boxed="all", units=True,
+            ),
+            boxed_match_priority=0,
+            try_extract_without_anchor=False,
+        )],
+        extraction_mode="first_match"
+    )
+    if pred_parsed is None:
+        return False
+    try:
+        return verify(gt_parsed, pred_parsed)
+    except Exception:
+        return False
+
+
+def compute_accuracy_first(pred_first: List[str], gt: List[str]) -> float:
+    """Accuracy of the *first* prediction."""
+    correctness_list = [answer_is_correct(p, g) for p, g in zip(pred_first, gt)]
+    accuracy = sum(correctness_list) / len(correctness_list)
+    return accuracy, correctness_list
+
+
+def compute_pass_at_k(pred_lists: List[List[str]], gt: List[str], k: int) -> float:
+    """
+    Correct pass@k implementation.
+
+    For each problem i:
+        n = NUM_SAMPLES          (constant)
+        c_i = # correct samples among the n
+        contribution = 1 - C(n - c_i, k) / C(n, k)
+
+    The metric is the mean of contributions.
+    """
+    n = len(pred_lists[0])                # assume every problem has the same n
+    if k > n:
+        raise ValueError(f"pass@k needs k ≤ n (k={k}, n={n})")
+
+    scores = []
+    for preds, truth in zip(pred_lists, gt):
+        # count how many of the n predictions are correct
+        c_i = sum(answer_is_correct(p, truth) for p in preds)
+        if c_i == 0:
+            scores.append(0.0)
+        else:
+            scores.append(1.0 - comb(n - c_i, k) / comb(n, k))
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Original utilities (unchanged except prompt formatter + generation)
+# ──────────────────────────────────────────────────────────────────────────────
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate a model on mathematical reasoning benchmarks")
-    
-    # Model args
-    parser.add_argument(
-        "--model_name_or_path", type=str, required=True,
-        help="Path to a local model checkpoint or a model ID from Huggingface Hub",
+    parser = argparse.ArgumentParser(
+        description="Evaluate a model on mathematical reasoning benchmarks"
     )
-    
-    # Dataset args
-    parser.add_argument(
-        "--dataset", type=str, default="openai/gsm8k", 
-        choices=["openai/gsm8k", "HuggingFaceH4/MATH-500"],
-        help="Dataset to evaluate on: 'gsm8k' for openai/gsm8k, 'math500' for HuggingFaceH4/MATH-500",
-    )
-    
-    # Generation args
-    parser.add_argument(
-        "--temperature", type=float, default=0.2,
-        help="Generation temperature",
-    )
-    parser.add_argument(
-        "--top_p", type=float, default=0.95,
-        help="Top-p sampling",
-    )
-    parser.add_argument(
-        "--max_length", type=int, default=2048,
-        help="Maximum token length for generated responses",
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=8,
-        help="Batch size for evaluation",
-    )
-    
-    # Evaluation args
-    parser.add_argument(
-        "--split", type=str, default="test", choices=["test", "train"],
-        help="Dataset split to evaluate on",
-    )
-    parser.add_argument(
-        "--num_examples", type=int, default=None,
-        help="Limit evaluation to this many examples (default: use all examples)",
-    )
-    
-    # Output args
-    parser.add_argument(
-        "--output_dir", type=str, default="outputs",
-        help="Directory to save evaluation results",
-    )
-    
-    # W&B integration args
-    parser.add_argument(
-        "--wandb_project", type=str, default="latent_reasoner_eval",
-        help="W&B project name for logging results",
-    )
-    parser.add_argument(
-        "--wandb_run_name", type=str, default=None,
-        help="W&B run name (default: model_name_dataset_eval)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42,
-        help="Random seed for reproducibility",
-    )
-    parser.add_argument(
-        "--no_wandb", action="store_true",
-        help="Disable W&B logging",
-    )
-    
+    # (all original arguments stay untouched – no new args were added)
+    parser.add_argument("--model_name_or_path", type=str, required=True)
+    parser.add_argument("--dataset", type=str, default="openai/gsm8k",
+                        choices=["openai/gsm8k", "HuggingFaceH4/MATH-500"])
+    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--split", type=str, default="test",
+                        choices=["test", "train"])
+    parser.add_argument("--num_examples", type=int, default=None)
+    parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--wandb_project", type=str, default="latent_reasoner_eval")
+    parser.add_argument("--wandb_run_name", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--no_wandb", action="store_true")
     return parser.parse_args()
 
-def format_prompt(question: str, dataset_name: str) -> Union[str, List[Dict[str, str]]]:
-    """Format the prompt for the model based on the dataset."""
-    if dataset_name == "openai/gsm8k":
-        system_prompt_for_eval = SYSTEM_PROMPT_GSM8K_4_SHOT_EVAL
-    elif dataset_name == "HuggingFaceH4/MATH-500":
-        system_prompt_for_eval = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
-    
-    return system_prompt_for_eval + "\nUser:" + question + "\nAssistant:"
 
-def generate_responses(
+def format_prompt(question: str, dataset_name: str) -> str:
+    """Return a single string prompt (few-shot) for a question."""
+    if dataset_name == "openai/gsm8k":
+        system_prompt = SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL
+    else:
+        system_prompt = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+    return f"{system_prompt}\nUser:{question}\nAssistant:"
+
+
+def extract_answer_from_response(response: str) -> str:
+    """Return content from \boxed{…} in <answer> tag."""
+    tag_match = re.search(r"<answer>(.*?)</answer>", response, re.DOTALL)
+    if not tag_match:
+        return ""
+    answer_block = tag_match.group(1)
+    box_match = re.search(r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", answer_block,
+                          re.DOTALL)
+    return (box_match.group(1).strip() if box_match else "")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New generation routine that returns *all* answers (requirement #4)
+# ──────────────────────────────────────────────────────────────────────────────
+def generate_responses_multi(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizer,
-    prompts: List[Union[str, List[Dict[str, str]]]],
+    prompts: List[str],
     batch_size: int,
     max_length: int,
     temperature: float,
     top_p: float,
-) -> List[str]:
-    """Generate responses in batches."""
-    responses = []
-    
-    # Move model to evaluation mode
+    num_samples: int = NUM_SAMPLES,
+) -> List[List[str]]:
+    """
+    Generate `num_samples` responses per prompt.
+    Returns: List (len = #questions) of List[str] (len = num_samples)
+    """
     model.eval()
+    all_out: List[List[str]] = []
 
-    # Process in batches
-    for i in tqdm(range(0, len(prompts), batch_size), desc="Generating responses"):
-        batch_prompts = prompts[i:i+batch_size]
-        
-        # For base models, use regular tokenizer
-        inputs = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True).to(device=model.device)
-        
-        # Generate responses
+    for start in tqdm(range(0, len(prompts), batch_size), desc="Generating responses", unit="batch"):
+        batch_prompts = prompts[start : start + batch_size]
+        inputs = tokenizer(batch_prompts,
+                           return_tensors="pt",
+                           padding=True,
+                           truncation=True).to(model.device)
+
+        # replicate each row num_samples times *inside* the batch
+        input_ids = inputs["input_ids"].repeat_interleave(num_samples, dim=0)
+        attention = inputs["attention_mask"].repeat_interleave(num_samples, dim=0)
+
         with torch.no_grad():
             outputs = model.generate(
-                inputs["input_ids"],
-                attention_mask=inputs.get("attention_mask"),
+                input_ids,
+                attention_mask=attention,
                 max_new_tokens=max_length,
                 temperature=temperature,
                 top_p=top_p,
-                pad_token_id=tokenizer.pad_token_id,
                 do_sample=temperature > 0.0,
+                pad_token_id=tokenizer.pad_token_id,
+                num_return_sequences=1,         # already replicated manually
             )
-        
-        # Decode outputs
-        batch_responses = []
-        for j, output in enumerate(outputs):
-            # Get the length of input tokens for this example
-            input_length = inputs["input_ids"][j].size(0)
-            
-            # Get only the generated tokens (excluding input)
-            response_tokens = output[input_length:]
-            
-            # Decode only the response part
-            assistant_response = tokenizer.decode(response_tokens, skip_special_tokens=True).strip()
-            batch_responses.append(assistant_response)
-        
-        responses.extend(batch_responses)
-    
-    return responses
 
-def extract_answer_from_response(response: str) -> str:
-    """Extract final answer from model's response according to the expected format.
-    
-    Expected format follows:
-    <think>reasoning process</think>
-    <answer>\\boxed{final_answer}</answer>
-    """
-    # First try to extract content between <answer> tags
-    answer_pattern = re.compile(r'<answer>(.*?)</answer>', re.DOTALL)
-    answer_match = answer_pattern.search(response)
-    boxed_match = ""
+        # group back into per-question lists
+        for i in range(len(batch_prompts)):
+            start_idx = i * num_samples
+            samples = outputs[start_idx : start_idx + num_samples]
+            decoded = [
+                tokenizer.decode(o[input_ids.shape[1]:], skip_special_tokens=True).strip()
+                for o in samples
+            ]
+            all_out.append(decoded)
 
-    if answer_match:
-        answer_content = answer_match.group(1).strip()
-        # Look for \boxed{...} in the answer content
-        boxed_match = extract_boxed_content(answer_content)
-    
-    return boxed_match
+    return all_out
 
-def extract_boxed_content(text: str) -> Optional[str]:
-    """Extract content from \\boxed{...}"""
 
-    boxed_pattern = r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
-    m_box = re.search(boxed_pattern, text, re.DOTALL)
-
-    if m_box:
-        boxed_content = m_box.group(1).strip()
-        return boxed_content
-    else:
-        # No boxed expression found → return empty string
-        return ""
-
-def evaluate_responses(predicted_answers: List[str], ground_truth: List[str], full_responses: List[str], tokenizer=None) -> Dict[str, Any]:
-    """Evaluate model predictions against ground truth answers."""
-    correct = 0
-    total = len(ground_truth)
-    
-    # Format compliance metrics
-    has_think_tag = 0
-    has_answer_tag = 0
-    has_boxed = 0
-    fully_formatted = 0
-    
-    # Calculate average response token length
-    total_token_length = 0
-    
-    # Store correctness for each prediction
-    correctness_info = []
-    
-    for pred, gt, full_resp in zip(predicted_answers, ground_truth, full_responses):
-        # Initialize correctness data for this prediction
-        is_correct = False
-        correctness_reason = "incorrect"
-        
-        # Check answer correctness
-        if pred.lower() == gt.lower():
-            correct += 1
-            is_correct = True
-            correctness_reason = "exact_match"
-        else:
-            gt_str = f'${gt}$' # add $ to make it a valid latex expression
-            gt_parsed = parse(gt_str, extraction_mode="first_match")
-
-            pred_parsed = parse(
-                pred,
-                extraction_config=[
-                    LatexExtractionConfig(
-                        normalization_config=NormalizationConfig(
-                            nits=False,
-                            malformed_operators=False,
-                            basic_latex=True,
-                            equations=True,
-                            boxed="all",
-                            units=True,
-                        ),
-                        boxed_match_priority=0,
-                        try_extract_without_anchor=False,
-                    )
-                ],
-                extraction_mode="first_match",
-                )
-            
-            if pred_parsed is not None:
-                try:
-                    if verify(gt_parsed, pred_parsed):
-                        # if the verification passes, we can verify it but it is not perfect match
-                        correct += 1
-                        is_correct = True
-                        correctness_reason = "symbolic_match"
-                except Exception as e:
-                    # if the verification fails
-                    logger.error(f"Verification error: {e}")
-                    logger.error(f"Predicted: {pred}, GT: {gt}")
-        
-        # Check format compliance
-        has_think = bool(re.search(r'<think>.*?</think>', full_resp, re.DOTALL))
-        has_answer = bool(re.search(r'<answer>.*?</answer>', full_resp, re.DOTALL))
-        has_box = '\\boxed{' in full_resp
-        
-        if has_think:
-            has_think_tag += 1
-        if has_answer:
-            has_answer_tag += 1
-        if has_box:
-            has_boxed += 1
-        if has_think and has_answer and has_box:
-            fully_formatted += 1
-            
-        # Add response token length if tokenizer is provided
-        token_length = 0
-        if tokenizer is not None:
-            tokens = tokenizer.encode(full_resp)
-            token_length = len(tokens)
-            total_token_length += token_length
-        
-        # Save correctness info for this prediction
-        correctness_info.append({
-            "correct": is_correct,
-            "reason": correctness_reason,
-            "has_think": has_think,
-            "has_answer": has_answer,
-            "has_boxed": has_box,
-            "fully_formatted": has_think and has_answer and has_box,
-            "token_length": token_length
-        })
-    
-    accuracy = correct / total if total > 0 else 0
-    avg_token_length = total_token_length / total if total > 0 and tokenizer is not None else 0
-    
-    return {
-        "accuracy": accuracy,
-        "correct": correct,
-        "total": total,
-        "avg_token_length": avg_token_length,
-        "format_metrics": {
-            "has_think_tag_pct": has_think_tag / total if total > 0 else 0,
-            "has_answer_tag_pct": has_answer_tag / total if total > 0 else 0,
-            "has_boxed_pct": has_boxed / total if total > 0 else 0,
-            "fully_formatted_pct": fully_formatted / total if total > 0 else 0,
-            "has_think_tag": has_think_tag,
-            "has_answer_tag": has_answer_tag,
-            "has_boxed": has_boxed,
-            "fully_formatted": fully_formatted,
-        },
-        "correctness_info": correctness_info
-    }
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────────────────────
 def main():
-    # Parse command-line arguments
     args = parse_args()
-    
-    # Set random seed for reproducibility
-    torch.manual_seed(args.seed)
-    random.seed(args.seed)
-    np.random.seed(args.seed)
+
+    # reproducibility
+    torch.manual_seed(args.seed); random.seed(args.seed); np.random.seed(args.seed)
     set_seed(args.seed)
-    # Ensure deterministic behavior
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
-    
-    # Load appropriate dataset based on user selection
-    if args.dataset in ("openai/gsm8k", "HuggingFaceH4/MATH-500"):
-        dataset = prepare_dataset(args.dataset, args.split, args.num_examples)
-    else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}")
-    
-    logger.info(f"Evaluating on {args.dataset} dataset")
-    
-    # Load model and tokenizer
-    logger.info(f"Loading model from {args.model_name_or_path}")
-    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, device_map="auto")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, padding_side='left')
-    
-    # Format prompts
+
+    # dataset
+    dataset = prepare_dataset(args.dataset, args.split, args.num_examples)
+    logger.info(f"Evaluating {args.model_name_or_path} on {args.dataset}")
+
+    # model + tokenizer
+    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
+                                                 device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path,
+                                              padding_side="left")
+
+    # prompts
     prompts = [format_prompt(q, args.dataset) for q in dataset["questions"]]
-    
-    # Generate responses
-    start_time = time.time()
-    responses = generate_responses(
-        model=model,
-        tokenizer=tokenizer,
-        prompts=prompts,
+
+    # ── generate answers ────────────────────────────────────────────────────
+    start = time.time()
+    responses_multi = generate_responses_multi(
+        model, tokenizer, prompts,
         batch_size=args.batch_size,
         max_length=args.max_length,
         temperature=args.temperature,
-        top_p=args.top_p
+        top_p=args.top_p,
+        num_samples=NUM_SAMPLES,
     )
-    generation_time = time.time() - start_time
+    generation_time = time.time() - start
+    logger.info(f"Generated {NUM_SAMPLES} answers per question "
+                f"in {generation_time:.1f}s")
+
+    # extract boxed answers
+    extracted_multi = [
+        [extract_answer_from_response(r) for r in resp_list]
+        for resp_list in responses_multi
+    ]
+
+    # first answer lists (for backward-compat accuracy + format checks)
+    first_responses = [resp_list[0] for resp_list in responses_multi]
+    first_extracted_answers_in_response = [ans_list[0]  for ans_list  in extracted_multi]
+
+    # ── compute metrics ─────────────────────────────────────────────────────
+    accuracy_first, correctness_list = compute_accuracy_first(first_extracted_answers_in_response, dataset["answers"])
+    metrics = {
+        "accuracy":  accuracy_first,
+        "num_samples": NUM_SAMPLES,
+        "generation_time": generation_time,
+        "generation_time_per_question": generation_time / (len(dataset["questions"]) * NUM_SAMPLES)
+    }
     
-    # Extract answers from responses
-    extracted_answers = [extract_answer_from_response(resp) for resp in responses]
-    
-    # Evaluate responses - now passing tokenizer for token length calculation
-    metrics = evaluate_responses(extracted_answers, dataset["answers"], responses, tokenizer)
-    metrics["generation_time"] = generation_time
-    metrics["examples_per_second"] = len(dataset["questions"]) / generation_time
-    
-    # Log metrics
-    logger.info(f"Evaluation metrics on {args.dataset}:")
-    logger.info(f"  Accuracy: {metrics['accuracy']:.4f} ({metrics['correct']}/{metrics['total']})")
-        
-    # Save results
-    save_results(args, dataset, responses, extracted_answers, metrics)
-    
-    return metrics
+    # pass@k
+    for k in PASS_AT_K_VALUES:
+        metrics[f"pass@{k}"] = compute_pass_at_k(extracted_multi,
+                                                 dataset["answers"], k)
+
+    logger.info(f"Evaluation results:\n{metrics}")
+
+    save_results(args, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer)
+
 
 if __name__ == "__main__":
     main()
