@@ -1,21 +1,24 @@
 model:
-  model_name_or_path: "google/gemma-3-1b-pt"
+  model_name_or_path: "Qwen/Qwen2.5-1.5B-Instruct"
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
 
 training:
   seed: 42
-  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/gemma_3_1b_pt_rl"
-  per_device_train_batch_size: 8
-  per_device_eval_batch_size: 8
+  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen2p5_1p5b_it_rl"
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
   gradient_accumulation_steps: 8
-  learning_rate: 1.0e-5
-  num_train_epochs: 2
+  lr_scheduler_type: "cosine_with_min_lr"
+  learning_rate: 1.0e-6
+  lr_scheduler_kwargs: 
+    min_lr_rate: 0.1
+  num_train_epochs: 1
   logging_steps: 1
   eval_steps: 200
   save_steps: 200
-  warmup_steps: 1
+  warmup_steps: 20
   weight_decay: 0.01
 
 grpo:
@@ -31,4 +34,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: gemma_3_1b_pt_rl_deepmath
+  run_name: qwen2p5_1p5b_it_rl_openr1math

@@ -1,21 +1,23 @@
 from datasets import load_dataset, DatasetDict
-from prompts.prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_LATENT_REASONER
+from prompts.prompts import (SYSTEM_PROMPT)
 import logging
 
 def prepare_dataset(config: dict) -> DatasetDict:
-    """Load GSM8K and re‑format into the columns GRPOTrainer expects."""
-    raw_ds = load_dataset(
-        config["dataset"]["name"],
-        config["dataset"].get("subname", None),
-    )
-
-    # Train/val split
+    """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
+    raw_ds = load_dataset(config["dataset"]["name"], "default")
+    
+    # Since there's only a train split in DeepMath-103K, create train/val splits
     split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=config["training"]["seed"])
-
+    
     processed = {
-        "train": split_ds["train"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "validation": split_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["train"].column_names),
-        "test": raw_ds["test"].map(_gsm8k_to_grpo, remove_columns=raw_ds["test"].column_names),
+        "train": split_ds["train"].map(
+            lambda x: _openr1_to_grpo(x), 
+            remove_columns=raw_ds["train"].column_names
+        ),
+        "validation": split_ds["test"].map(
+            lambda x: _openr1_to_grpo(x), 
+            remove_columns=raw_ds["train"].column_names
+        )
     }
     
     # Log the dataset split sizes
@@ -23,39 +25,20 @@ def prepare_dataset(config: dict) -> DatasetDict:
     logger.info("Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
-    logger.info(f"  Test: {len(processed['test'])} examples")
 
     return DatasetDict(processed)
 
-def _gsm8k_to_grpo(example: dict) -> dict:
-    """Convert a GSM8K row → GRPO expected format using SYSTEM_PROMPT."""
-    question = example["question"].strip()
-    answer = _extract_gsm8k_answer(example["answer"])
+def _openr1_to_grpo(example: dict) -> dict:
+    """Convert an OpenR1-Math-220k row → GRPO expected format.
     
-    prompt = [
-        {"role": "system", "content": SYSTEM_PROMPT_LATENT_REASONER},
-        {"role": "user", "content": question},
-    ]
+    Args:
+        example: An OpenR1-Math-220k example
+    """
+    question = example["problem"].strip()
+    answer = example["answer"].strip()
     
+    prompt = SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
     return {
         "prompt": prompt,
         "answer": answer,
     }
-
-def _extract_gsm8k_answer(raw_answer: str) -> str:
-    """
-    Extract the canonical short answer from a GSM8K solution string.
-
-    GSM8K places the final numeric answer after the delimiter '####', e.g.
-        "... reasoning ...\n#### 24"
-    We take everything after the *last* occurrence of that delimiter,
-    strip whitespace, and drop a trailing period if present.
-    """
-    if "####" in raw_answer:
-        answer = raw_answer.split("####")[-1]
-    else:
-        answer = raw_answer
-    answer = answer.strip()
-    if answer.endswith("."):
-        answer = answer[:-1].strip()
-    return answer

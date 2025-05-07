@@ -54,9 +54,12 @@ def setup_training_args(config: dict) -> GRPOConfig:
         dataloader_num_workers=4,
         remove_unused_columns=False,
         # Other args
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=False,
         log_completions=True,
         use_vllm=True,
+        vllm_max_model_len=config["grpo"]["max_completion_length"]+1280,
         vllm_enable_prefix_caching=False
     )
 
@@ -135,7 +138,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/gemma_3_1b_it_rl.yaml",
+        default="src/configs/qwen2p5_1p5b_rl.yaml",
         help="Path to the configuration YAML file",
     )
     return parser.parse_args()

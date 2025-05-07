@@ -2,12 +2,11 @@ model:
   model_name_or_path: "google/gemma-3-1b-it"
 
 dataset:
-  name: "openai/gsm8k"
-  subname: "main"
+  name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
 
 training:
   seed: 42
-  output_dir: "outputs/gemma_3_1b_it_rl"
+  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/gemma_3_1b_it_rl"
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 8
   gradient_accumulation_steps: 8
@@ -35,4 +34,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: gemma-3-1b-it-rl-gsm
+  run_name: gemma_3_1b_it_rl_deepmath

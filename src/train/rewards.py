@@ -5,10 +5,25 @@ from typing import Optional, List, Union
 from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
-def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[str]) -> List[Optional[float]]:
-    """Reward function that checks if the completion is the same as the ground truth"""
-    
-    contents = [completion[0]["content"] for completion in completions]
+def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dict]]], answer: List[str]) -> List[Optional[float]]:
+    """
+    Reward function that checks for:
+      - Exact match => 1.0
+      - Latex Verified => 0.75
+      - Otherwise => 0.0
+    """
+    full_reward = 1.0
+    partial_reward = 0.75
+    zero_reward = 0.0
+
+    # Handle both string completions (base models) and chat completions (instruction-tuned models)
+    contents = []
+    for completion in completions:
+        if isinstance(completion, str):
+            contents.append(completion)
+        else:
+            # For chat format (list of dicts)
+            contents.append(completion[0]["content"])
     
     rewards: List[Optional[float]] = []
     for comp, sol in zip(contents, answer):
@@ -19,7 +34,7 @@ def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[
         all_ans = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_ans) != 1:
             # zero reward if there are none or more than one
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
         
         # now we know there's exactly one <answer>…</answer>, so extract it
@@ -29,24 +44,33 @@ def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[
         content = content.strip()
         sol_str = str(sol).strip()
 
-        # pull out what's in the \boxed{…}
-        m_box = re.search(r"\\boxed\{(.*?)\}", content, re.DOTALL)
+        # pull out what's in the \boxed{…} - using a better regex to handle nested braces
+        boxed_pattern = r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
+        m_box = re.search(boxed_pattern, content, re.DOTALL)
         if not m_box:
             # no boxed expression → zero reward
-            rewards.append(0.0)
+            rewards.append(zero_reward)
+            continue
+        
+        # Extract boxed content
+        boxed_content = m_box.group(1).strip()
+        
+        # 0) Direct string comparison for simple string answers like "C", "Yes", etc.
+        if boxed_content.lower() == sol_str.lower():
+            rewards.append(full_reward)
             continue
         
         # 1) try plain numeric comparison
-        boxed_content = m_box.group(1).strip()
         try:
             if float(boxed_content) == float(sol_str):
-                rewards.append(1.0)
+                rewards.append(full_reward)
                 continue
         except ValueError:
             # e.g. boxed_content == '84/2'
             pass
 
         # 2) fallback to symbolic equivalence check
+        sol_str = f'${sol_str}$' # add $ to make it a valid latex expression
         sol_parsed = parse(sol_str, extraction_mode="first_match")
         if sol_parsed is None:
             rewards.append(None)
@@ -72,30 +96,34 @@ def accuracy_reward(*, prompts: List[str], completions: List[str], answer: List[
         )
         if content_parsed is None:
             # if the content is not parseable
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
         try:
             if verify(sol_parsed, content_parsed):
                 # if the verification passes, we can verify it but it is not perfect match
-                rewards.append(0.5)
+                rewards.append(partial_reward)
             else:
                 # if the verification fails, the content is not correct
-                rewards.append(0.0)
+                rewards.append(zero_reward)
         except Exception as e:
             # if the verification fails
-            rewards.append(0.0)
+            rewards.append(zero_reward)
 
     return rewards
 
 
-def format_reward(completions: List[Union[str, dict]], **kwargs) -> List[float]:
+def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> List[float]:
     """
     Reward function that checks for:
       - Exactly one <think>…</think> and one <answer>…</answer>.
-      - Full match: <think>…</think> immediately followed by <answer>…\\boxed{…}…</answer>  => 1.0
-      - Partial match: <think>…</think> immediately followed by <answer>…</answer> (no \\boxed) => 0.5
-      - Otherwise => 0.0
+      - Full match: <think>…</think> immediately followed by <answer>…\\boxed{…}…</answer>
+      - Partial match: <think>…</think> immediately followed by <answer>…</answer> (no \\boxed)
+      - Otherwise => Zero reward
     """
+    full_reward = 1.0
+    partial_reward = 0.5
+    zero_reward = 0.0
+
     full_pattern = re.compile(
         r"^<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
         re.DOTALL
@@ -105,42 +133,61 @@ def format_reward(completions: List[Union[str, dict]], **kwargs) -> List[float]:
         re.DOTALL
     )
 
-    contents = [completion[0]["content"] for completion in completions]
+    # Handle both string completions (base models) and chat completions (instruction-tuned models)
+    contents = []
+    for completion in completions:
+        if isinstance(completion, str):
+            contents.append(completion)
+        elif isinstance(completion, list):
+            # For chat format (list of dicts)
+            contents.append(completion[0]["content"])
+        else:
+            # For direct dict format
+            contents.append(completion.get("content", completion))
+
     rewards: List[float] = []
-    for comp in contents:
+    for content in contents:
         # support dict-based or plain-string completions
-        content = comp.get("content", comp) if isinstance(comp, dict) else comp
+        text = content.get("content", content) if isinstance(content, dict) else content
 
         # 1) must have exactly one <think>…</think>
-        all_thinks = re.findall(r"<think>.*?</think>", content, re.DOTALL)
+        all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
         if len(all_thinks) != 1:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
 
         # 2) must have exactly one <answer>…</answer>
-        all_answers = re.findall(r"<answer>.*?</answer>", content, re.DOTALL)
+        all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_answers) != 1:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
             continue
 
         # 3) strip and apply patterns
-        stripped = content.strip()
+        stripped = text.strip()
         if full_pattern.match(stripped):
-            rewards.append(1.0)
+            rewards.append(full_reward)
         elif partial_pattern.match(stripped):
-            rewards.append(0.5)
+            rewards.append(partial_reward)
         else:
-            rewards.append(0.0)
+            rewards.append(zero_reward)
 
     return rewards
 
 # # Example
-# ANSWER="""
-# <think> reasoning </think>
-# <answer> result is \\boxed{42} </answer>
+# # === Example 2: Symbolic expression ===
+# RESPONSE2 = r"""
+# <think> sd </think>
+# <answer>
+# reasoning process here \\boxed{-\dfrac{1}{4}}
+# </answer>
 # """
-# print(ANSWER)
-# f_reward = format_reward(completions=[ANSWER])
-# print("format reward:", f_reward)
-# a_reward = accuracy_reward(prompts=[""], completions=[ANSWER], answer=["42"])
-# print("accuracy reward:", a_reward)
+
+# # Ground-truth answer for accuracy_reward:
+# ANSWER2 = r"-\dfrac{1}{4}"
+
+# # Run the checks
+# for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
+#     f_r = format_reward(completions=[resp])
+#     a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
+#     print(f"Example {i} format_reward: {f_r}")
+#     print(f"Example {i} accuracy_reward: {a_r}")
