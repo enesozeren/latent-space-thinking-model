@@ -2,11 +2,12 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class LatentReasoner:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, num_latent_steps: int = 5):
         # Supported model check
         if model_name not in ["Qwen/Qwen2.5-1.5B", "Qwen/Qwen2.5-3B"]:
             raise ValueError(f"Model {model_name} is not supported.")
 
+        self.num_latent_steps = num_latent_steps
         # Load model and tokenizer
         self.model_name = model_name
         self.model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -26,11 +27,6 @@ class LatentReasoner:
         self.embeding_layer = self.model.get_input_embeddings()
         # Init embeddings for new latent tokens
         self._init_latent_tokens()
-        # Binary stop classifier with sigmoid activation
-        self.end_latent_classifier = torch.nn.Sequential(
-            torch.nn.Linear(self.model.config.hidden_size, 1),
-            torch.nn.Sigmoid()
-        )
 
     def _init_latent_tokens(self):
         with torch.no_grad():
@@ -62,42 +58,132 @@ class LatentReasoner:
             return_dict=True
         )
 
-        # Get the last hidden state
+        # Get the last hidden state and logits
         last_hidden_states = output.hidden_states[-1]
+        logits = output.logits
 
-        return last_hidden_states
+        return last_hidden_states, logits
 
-    @torch.no_grad()
     def generate(
         self,
         inputs,
         attention_mask,
         generation_config = None,
         prompts: list = None, # Currently not supporting VLLM (we dont use the prompts input)
-        max_new_tokens: int = 100,
-        latent_max_steps: int = 20,
-        stop_threshold: float = 0.5,
+        max_new_tokens: int = 20,
         temperature: float = 1.0,
         top_k: int = 50,
         top_p: float = 1.0,
         device: str = None
     ) -> str:
-        
+        batch_size = inputs.size(0)
+
+        # Special token ids
+        start_latent_id = self.tokenizer.get_vocab()["<|start-latent|>"]
+        end_latent_id = self.tokenizer.get_vocab()["<|end-latent|>"]
+        latent_id = self.tokenizer.get_vocab()["<|latent|>"]
+        padding_id = self.tokenizer.pad_token_id
+
+        # Get input embeddings
         inputs_embeds = self.embeding_layer(inputs)
-        last_hidden_states = self.forward(inputs_embeds, attention_mask)
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
         
-        # Write it in loop to generate tokens
+        generated_seqs: list[list[int]] = [[] for _ in range(batch_size)]
+
+        def _append_to_all(seqs, tid):
+            for s in seqs:
+                s.append(tid)
+
+        # Latent space generation
+        for _ in range(self.num_latent_steps):
+            last_hidden_states, _ = self.forward(inputs_embeds, attention_mask)
+            _append_to_all(generated_seqs, latent_id)
+            # Append last latent embedding
+            inputs_embeds = torch.cat([inputs_embeds, last_hidden_states[:, -1:, :]], dim=1)
+            attention_mask = torch.cat([attention_mask, torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device)], dim=1)
+        
+        # Append end-of-latent marker
+        end_latent_emb = self.embeding_layer(torch.full((batch_size, 1), end_latent_id, device=device, dtype=torch.long))
+        inputs_embeds = torch.cat([inputs_embeds, end_latent_emb], dim=1)
+        attention_mask = torch.cat([attention_mask, torch.ones((batch_size, 1), dtype=attention_mask.dtype, device=attention_mask.device)], dim=1)
+        # Add end latent token to generated sequences
+        _append_to_all(generated_seqs, end_latent_id)
+
+        # Language space generation (greedy decoding)
+        for _ in range(max_new_tokens):
+            last_hidden_states, logits = self.forward(inputs_embeds, attention_mask)
+            # Get logits for the last position
+            next_logits = logits[:, -1, :] / temperature
+            next_tokens = torch.argmax(next_logits, dim=-1)
+
+            # update per-sequence state
+            for i, tok in enumerate(next_tokens.tolist()):
+                if finished[i]:
+                    continue
+                generated_seqs[i].append(tok)
+                if tok == self.tokenizer.eos_token_id:
+                    finished[i] = True
+
+            # break early if everybody is done
+            if torch.all(finished):
+                break
+
+            # feed placeholders for finished sequences
+            next_tokens_for_embed = next_tokens.masked_fill(finished, padding_id).unsqueeze(-1)
+            next_emb = self.embeding_layer(next_tokens_for_embed)
+
+            inputs_embeds = torch.cat([inputs_embeds, next_emb], dim=1)
+            attention_mask = torch.cat(
+                [attention_mask,
+                (~finished).long().unsqueeze(-1)],   # 1 for active seqs, 0 otherwise
+                dim=1,
+            )
+
+        # Generated tokens
+        max_len = max(len(s) for s in generated_seqs)
+        generated = torch.full(
+            (batch_size, max_len),
+            padding_id,
+            dtype=torch.long,
+            device=device,
+        )
+        for i, seq in enumerate(generated_seqs):
+            generated[i, : len(seq)] = torch.tensor(seq, device=device, dtype=torch.long)
+
+        return generated
 
 if __name__ == "__main__":
-    lr = LatentReasoner("Qwen/Qwen2.5-1.5B")
-    prompt = "What is 2+2?"
-    # Get input ids and attention mask
-    tokenized = lr.tokenizer(prompt, return_tensors="pt")
-    prompt_ids = tokenized["input_ids"]
-    attention_mask = tokenized["attention_mask"]
-    # Generate a response
-    response = lr.generate(
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    lr = LatentReasoner(model_name="Qwen/Qwen2.5-1.5B", num_latent_steps=5)
+    
+    # Define two prompts for batch processing
+    prompts = [
+        "User: What is the capital of Germany?",
+        "User: Can you explain quantum computing in simple terms?"
+    ]
+    
+    # Process both prompts
+    prompts = [p + "\nAssistant: " + "<|start-latent|>" for p in prompts]
+    
+    # Tokenize batch of prompts
+    tokenized = lr.tokenizer(prompts, return_tensors="pt", padding=True)
+    prompt_ids = tokenized["input_ids"].to(device)
+    attention_mask = tokenized["attention_mask"].to(device)
+    
+    # Generate responses for the batch
+    responses = lr.generate(
         prompt_ids,
         attention_mask=attention_mask,
-        generation_config=None  # Placeholder for generation config
+        max_new_tokens=20,
+        generation_config=None,
+        device=device,
     )
+
+    # Decode the batch of generated responses
+    response_texts = lr.tokenizer.batch_decode(responses, skip_special_tokens=False)
+    
+    # Print each prompt and its corresponding response
+    for i, (prompt, response) in enumerate(zip(prompts, response_texts)):
+        print(f"Prompt {i+1}: {prompt!r}")
+        print(f"Response {i+1}: {response!r}")
+        print("-" * 50)
