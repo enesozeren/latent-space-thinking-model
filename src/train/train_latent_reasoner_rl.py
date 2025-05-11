@@ -1,16 +1,16 @@
 import yaml
 import argparse
+import re
 import os
 import logging
 import wandb
 from datetime import datetime
 from trl import GRPOTrainer, GRPOConfig
-
-# Replace standard imports with our LatentReasoner
-from src.latent_reasoner.model import LatentReasoner
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
+from src.latent_reasoner.model import LatentReasoner
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -45,35 +45,48 @@ def setup_training_args(config: dict) -> GRPOConfig:
         bf16=True,
         dataloader_num_workers=4,
         remove_unused_columns=False,
+        # Other args
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=False,
         log_completions=True,
-        use_vllm=False # Since we use a custom model
+        use_vllm=False
+        # vllm_max_model_len=config["grpo"]["max_completion_length"]+1280,
+        # vllm_enable_prefix_caching=False
     )
 
 def train_model(config_path: str) -> None:
     """Main training routine."""
     cfg = load_config(config_path)
+    
+    # figure out which process we're in
     rank = int(os.environ.get("RANK", 0))
     is_main = (rank == 0)
 
-    # Initialize W&B on main process
-    if is_main and cfg.get("wandb", {}).get("project"):
+    # only in the rank‑0 process
+    if is_main and "wandb" in cfg and cfg["wandb"].get("project"):
         run = wandb.init(
             project=cfg["wandb"]["project"],
             name=cfg["wandb"].get("run_name"),
             config=cfg,
         )
+        # this will pin your YAML into the run's Files tab
         wandb.save(config_path)
     else:
         os.environ["WANDB_MODE"] = "disabled"
-
-    # Setup logging
+        
+    # Logging
     base_output_dir = cfg["training"]["output_dir"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = os.path.join(base_output_dir, timestamp)
-    os.makedirs(output_dir, exist_ok=True)
+    # Update cfg for output_dir
     cfg["training"]["output_dir"] = output_dir
+
+    # Ensure the output directory exists before writing the log file.
+    os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, "training.log")
+
+    # Configure the root logger
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -81,45 +94,48 @@ def train_model(config_path: str) -> None:
             logging.FileHandler(log_path, mode="a"),
             logging.StreamHandler()
         ],
-        force=True
+        force=True  # override any previous logging configuration
     )
-    logging.info("Logging initialized – saving to %s", log_path)
+
+    logging.info("Logging initialised – saving to %s", log_path)
+    
+    # Log the configuration file
     with open(config_path, "r") as f:
-        logging.info("Configuration file contents:\n%s", f.read())
-
-    # Prepare data
+        config_content = f.read()
+    logging.info("Configuration file contents:\n%s", config_content)
+    
+    # Prepare the dataset
     data = prepare_dataset(cfg)
-
-    # GRPO args
+    
+    # Arguments
     args = setup_training_args(cfg)
 
-    # Instantiate our LatentReasoner
-    latent = LatentReasoner(model_name=cfg["model"]["model_name_or_path"])
-    model = latent.model
-    tokenizer = latent.tokenizer
-    # Monkey-patch generate to include latent loop
-    model.generate = latent.generate
+    # Model and tokenizer
+    model = LatentReasoner(model_name="Qwen/Qwen2.5-1.5B", 
+                           num_latent_steps=cfg["model"]["num_latent_steps"])
+    tokenizer = model.tokenizer
 
-    # Setup trainer
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
         reward_funcs=[format_reward, accuracy_reward],
         args=args,
         train_dataset=data["train"],
-        eval_dataset=data.get("validation")
+        eval_dataset=data["validation"],
     )
 
-    # Train
     trainer.train()
 
-if __name__ == "__main__":
+def parse_args():
     parser = argparse.ArgumentParser(description="Train a model using GRPO.")
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/latent_reasoner_qwen2_1p5b_it_rl.yaml",
+        default="src/configs/latent_reasoner_rl.yaml",
         help="Path to the configuration YAML file",
     )
-    args = parser.parse_args()
-    train_model(args.config)
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    cli_args = parse_args()
+    train_model(cli_args.config)

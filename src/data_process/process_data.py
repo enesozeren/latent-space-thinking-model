@@ -1,9 +1,15 @@
 from datasets import load_dataset, DatasetDict
-from prompts.prompts import (SYSTEM_PROMPT)
+from prompts.prompts import (
+    SYSTEM_PROMPT, 
+    SYSTEM_PROMPT_LATENT_REASONER
+)
 import logging
 
 def prepare_dataset(config: dict) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
+    # Check if the model is a latent reasoner
+    is_latent_reasoner = config["model"]["model_name_or_path"] == "LatentReasoner"
+    
     raw_ds = load_dataset(config["dataset"]["name"], "default")
     
     # Since there's only a train split in DeepMath-103K, create train/val splits
@@ -11,11 +17,11 @@ def prepare_dataset(config: dict) -> DatasetDict:
     
     processed = {
         "train": split_ds["train"].map(
-            lambda x: _openr1_to_grpo(x), 
+            lambda x: _openr1_to_grpo(x, is_latent_reasoner), 
             remove_columns=raw_ds["train"].column_names
         ),
         "validation": split_ds["test"].map(
-            lambda x: _openr1_to_grpo(x), 
+            lambda x: _openr1_to_grpo(x, is_latent_reasoner), 
             remove_columns=raw_ds["train"].column_names
         )
     }
@@ -28,7 +34,7 @@ def prepare_dataset(config: dict) -> DatasetDict:
 
     return DatasetDict(processed)
 
-def _openr1_to_grpo(example: dict) -> dict:
+def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """Convert an OpenR1-Math-220k row → GRPO expected format.
     
     Args:
@@ -37,7 +43,11 @@ def _openr1_to_grpo(example: dict) -> dict:
     question = example["problem"].strip()
     answer = example["answer"].strip()
     
-    prompt = SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
+    if is_latent_reasoner:
+        prompt = SYSTEM_PROMPT_LATENT_REASONER + "\nUser:" + question + "\nAssistant: <|start-latent|>"
+    else:
+        prompt = SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
+
     return {
         "prompt": prompt,
         "answer": answer,

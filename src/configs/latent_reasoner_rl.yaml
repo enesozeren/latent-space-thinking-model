@@ -1,0 +1,39 @@
+model:
+  model_name_or_path: "LatentReasoner"
+  num_latent_steps: 10
+
+dataset:
+  name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
+
+training:
+  seed: 42
+  output_dir: "outputs/latent_reasoner_rl"
+  # output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_rl"
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 32
+  lr_scheduler_type: "cosine_with_min_lr"
+  learning_rate: 1.0e-6
+  lr_scheduler_kwargs: 
+    min_lr_rate: 0.1
+  num_train_epochs: 1
+  logging_steps: 1
+  eval_steps: 50
+  save_steps: 50
+  warmup_steps: 10
+  weight_decay: 0.01
+
+grpo:
+  # Core GRPO hyperparameters
+  beta: 0.04  # KL penalty coefficient
+  epsilon: 0.2  # clip range
+  scale_rewards: true
+  
+  # Generation parameters
+  num_generations: 6  # Number of answers to generate for each input
+  max_completion_length: 2560  # Maximum length of the generated answer
+  temperature: 0.7
+
+wandb:
+  project: latent_reasoner
+  run_name: latent_reasoner_rl_openr1math
