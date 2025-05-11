@@ -257,15 +257,3 @@ if __name__ == "__main__":
         print(f"Prompt {i+1}: {prompt!r}")
         print(f"Response {i+1}: {response!r}")
         print("-" * 50)
-
-    # # Generate responses for the batch
-    # response_embeddings = lr.generate(
-    #     prompt_ids,
-    #     attention_mask=attention_mask,
-    #     max_new_tokens=20,
-    #     do_sample=True,
-    #     generation_config=None,
-    #     output_embedding=True
-    # )
-
-    # print(response_embeddings.shape)

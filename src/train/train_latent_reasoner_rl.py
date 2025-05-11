@@ -1,16 +1,16 @@
 import yaml
 import argparse
-import re
 import os
 import logging
 import wandb
 from datetime import datetime
+import torch
 from trl import GRPOTrainer, GRPOConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
-from src.latent_reasoner.model import LatentReasoner
+from src.latent_reasoner.model import LatentReasoner, LatentReasonerConfig
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -111,9 +111,42 @@ def train_model(config_path: str) -> None:
     args = setup_training_args(cfg)
 
     # Model and tokenizer
-    model = LatentReasoner(model_name="Qwen/Qwen2.5-1.5B", 
-                           num_latent_steps=cfg["model"]["num_latent_steps"])
-    tokenizer = model.tokenizer
+    # Create a config first with our custom parameters
+    config = LatentReasonerConfig.from_pretrained(cfg["model"]["base_model_name_or_path"], 
+                                                  num_latent_steps=cfg["model"]["num_latent_steps"])
+    # Then create the model with this config
+    model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"], config=config)
+    # Load the tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    # Add special tokens for latent reasoning
+    tokenizer.add_special_tokens({
+            "additional_special_tokens": [
+                "<|start-latent|>",
+                "<|end-latent|>",
+                "<|latent|>"
+            ]
+        })
+    model.resize_token_embeddings(len(tokenizer))
+    
+    # Get the embedding layer correctly
+    embedding_layer = model.get_input_embeddings()
+    
+    # Init the new latent tokens
+    vocab = tokenizer.get_vocab()
+    sid = vocab.get("<|start-latent|>")
+    eid = vocab.get("<|end-latent|>")
+    lid = vocab.get("<|latent|>")
+    
+    # Use torch.no_grad() to safely modify the weights
+    with torch.no_grad():
+        # copy from similar tokens
+        if "<|im_start|>" in vocab and sid is not None:
+            embedding_layer.weight[sid] = embedding_layer.weight[vocab["<|im_start|>"]].clone()
+        if "<|im_end|>" in vocab and eid is not None:
+            embedding_layer.weight[eid] = embedding_layer.weight[vocab["<|im_end|>"]].clone()
+        # init latent token with 0s since it won't be feed to the model ever
+        if lid is not None:
+            embedding_layer.weight[lid] = torch.zeros_like(embedding_layer.weight[0])
 
     trainer = GRPOTrainer(
         model=model,
