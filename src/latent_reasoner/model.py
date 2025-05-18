@@ -1,11 +1,10 @@
 import torch
-from transformers.models.gpt2 import GPT2LMHeadModel, GPT2Config
-from transformers import AutoTokenizer
+from transformers import Qwen2ForCausalLM, AutoTokenizer, Qwen2Config
 
 
-class LatentReasoner(GPT2LMHeadModel):
+class LatentReasoner(Qwen2ForCausalLM):
 
-    def __init__(self, config: GPT2Config):
+    def __init__(self, config: Qwen2Config):
         super().__init__(config)
 
     def _prepare_latent_context(
@@ -115,11 +114,11 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Then create the model
-    model = LatentReasoner.from_pretrained("openai-community/gpt2")
+    model = LatentReasoner.from_pretrained("Qwen/Qwen2.5-0.5B")
     # Load the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
-    # Set the pad token to be the same as the eos token since GPT-2 does not have a pad token
-    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
+    # # Set the pad token to be the same as the eos token since GPT-2 does not have a pad token
+    # tokenizer.pad_token = tokenizer.eos_token
     
     # Add special tokens for latent reasoning
     tokenizer.add_special_tokens({
@@ -146,8 +145,8 @@ if __name__ == "__main__":
     # Use torch.no_grad() to safely modify the weights
     with torch.no_grad():
         # copy existing tokens
-        embedding_layer.weight[sid] = embedding_layer.weight[vocab["."]].clone()
-        embedding_layer.weight[eid] = embedding_layer.weight[vocab["."]].clone()
+        embedding_layer.weight[sid] = embedding_layer.weight[vocab["="]].clone()
+        embedding_layer.weight[eid] = embedding_layer.weight[vocab[">"]].clone()
 
     # The input embeddings and lm heads are tied in GPT2. So we don't need to modify the lm head
 
