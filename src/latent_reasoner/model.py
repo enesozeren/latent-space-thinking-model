@@ -44,6 +44,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         position_ids = torch.arange(0, seq_length, dtype=torch.long, device=device)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
+        num_latent_steps = num_latent_steps - 2 # - 2 for start and end latent tokens
         for _ in range(num_latent_steps):
             outputs = self(
                 inputs_embeds=inputs_embeds,
@@ -64,7 +65,7 @@ class LatentReasoner(Qwen2ForCausalLM):
             position_ids = torch.cat([position_ids, new_positions], dim=1)
 
         # Add the end latent token <|end-latent|>
-        end_latent_embed = self.get_input_embeddings()(
+        end_latent_embeds = self.get_input_embeddings()(
             torch.full(
                 (batch_size, 1),
                 self.end_latent_token_id,
@@ -72,7 +73,7 @@ class LatentReasoner(Qwen2ForCausalLM):
                 device=device,
             )
         )
-        inputs_embeds = torch.cat([inputs_embeds, end_latent_embed], dim=1)
+        inputs_embeds = torch.cat([inputs_embeds, end_latent_embeds], dim=1)
         new_mask = torch.ones(batch_size, 1, device=device, dtype=attention_mask.dtype)
         attention_mask = torch.cat([attention_mask, new_mask], dim=1)
 
@@ -81,7 +82,7 @@ class LatentReasoner(Qwen2ForCausalLM):
     def generate(self, input_ids=None, attention_mask=None, num_latent_steps: int = 5, **gen_kwargs):
         """
         Generate text using the model with latent reasoning.
-        Returns [completion] token ids and [prompt, completion] embeddings.
+        Returns completion token ids and prompt+completion embeddings.
         """
         if input_ids is not None:
             # augment with latent steps
@@ -94,20 +95,32 @@ class LatentReasoner(Qwen2ForCausalLM):
             # call the base generator
             # The base generater will return only the generated token ids 
             # since it doesn't have the input token ids but only the input embeddings
-            completion_token_ids = super().generate(
+            completion_language_token_ids = super().generate(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
                 **gen_kwargs,
             )
 
             # Append the completion embeddings to the inputs_embeds
-            completion_embeds = self.get_input_embeddings()(completion_token_ids)
+            completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
             prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
+            # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
+            batch_size = completion_language_token_ids.size(0)
+            device = completion_language_token_ids.device
+            dtype = completion_language_token_ids.dtype
+            
+            # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
+            latent_ids = torch.ones((batch_size, num_latent_steps), 
+                                    dtype=dtype, device=device) * self.latent_token_id
+            latent_ids[:, 0] = self.start_latent_token_id
+            latent_ids[:, -1] = self.end_latent_token_id
+            
+            # Concatenate with completion language tokens
+            completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)            
 
             return completion_token_ids, prompt_completion_embeds
         else:
             raise ValueError("input_ids must be provided for LatentReasoner.generate()")
-
 
 
 if __name__ == "__main__":
@@ -117,38 +130,41 @@ if __name__ == "__main__":
     model = LatentReasoner.from_pretrained("Qwen/Qwen2.5-0.5B")
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
-    # # Set the pad token to be the same as the eos token since GPT-2 does not have a pad token
-    # tokenizer.pad_token = tokenizer.eos_token
     
-    # Add special tokens for latent reasoning
-    tokenizer.add_special_tokens({
-            "additional_special_tokens": [
-                "<|start-latent|>",
-                "<|end-latent|>",
-                "<|latent|>"
-            ]
-        })
-    model.resize_token_embeddings(len(tokenizer))
+    # Define new tokens for latent steps
+    START = "<|start-latent|>"
+    LAT   = "<|latent|>"
+    END   = "<|end-latent|>"
+    new_specials = [START, LAT, END]
+
+    # 3) Add them to the tokenizer’s vocab
+    tokenizer.add_special_tokens({"additional_special_tokens": new_specials})
+    model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
+
+    # 4) “Save” them as attributes for easy access
+    tokenizer.start_latent_token   = START
+    tokenizer.latent_token         = LAT
+    tokenizer.end_latent_token     = END
+
+    tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
+    tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
+    tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
+
+    # mirror them on your model
+    model.start_latent_token_id = tokenizer.start_latent_token_id
+    model.latent_token_id       = tokenizer.latent_token_id
+    model.end_latent_token_id   = tokenizer.end_latent_token_id
     
     # Get the embedding layer correctly
     embedding_layer = model.get_input_embeddings()
     
     # Init the new latent tokens
     vocab = tokenizer.get_vocab()
-    sid = vocab.get("<|start-latent|>")
-    model.start_latent_token_id = sid
-    eid = vocab.get("<|end-latent|>")
-    model.end_latent_token_id = eid
-    lid = vocab.get("<|latent|>")
-    model.latent_token_id = lid
-    
     # Use torch.no_grad() to safely modify the weights
     with torch.no_grad():
         # copy existing tokens
-        embedding_layer.weight[sid] = embedding_layer.weight[vocab["="]].clone()
-        embedding_layer.weight[eid] = embedding_layer.weight[vocab[">"]].clone()
-
-    # The input embeddings and lm heads are tied in GPT2. So we don't need to modify the lm head
+        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["="]].clone()
+        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab[">"]].clone()
 
     # Define two prompts for batch processing
     prompts = [
@@ -163,7 +179,9 @@ if __name__ == "__main__":
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     prompt_ids = tokenized["input_ids"].to(device)
     attention_mask = tokenized["attention_mask"].to(device)
-    
+    # Print input shapes
+    print(f"Prompt IDs Shape: {prompt_ids.shape}")
+
     # Generate responses for the batch
     completion_token_ids, prompt_completion_embeds = model.generate(
         prompt_ids,
@@ -177,6 +195,8 @@ if __name__ == "__main__":
 
     # Print the prompt_completion_embeds shape
     print(f"Prompt Completion Embeds Shape: {prompt_completion_embeds.shape}")
+    # Print the completion_token_ids shape
+    print(f"Completion Token IDs Shape: {completion_token_ids.shape}")
     # Decode the batch of generated responses
     response_texts = tokenizer.batch_decode(completion_token_ids, skip_special_tokens=False)
     

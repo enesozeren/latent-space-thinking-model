@@ -10,7 +10,7 @@ from transformers import AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
-from src.latent_reasoner.model import LatentReasoner, LatentReasonerConfig
+from src.latent_reasoner.model import LatentReasoner
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -43,7 +43,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         temperature=config["grpo"]["temperature"],
         run_name=config.get("wandb", {}).get("run_name"),
         bf16=True,
-        dataloader_num_workers=4,
+        dataloader_num_workers=0,
         remove_unused_columns=False,
         # Other args
         gradient_checkpointing=True,
@@ -111,43 +111,47 @@ def train_model(config_path: str) -> None:
     args = setup_training_args(cfg)
 
     # Model and tokenizer
-    # Create a config first with our custom parameters
-    config = LatentReasonerConfig.from_pretrained(cfg["model"]["base_model_name_or_path"], 
-                                                  num_latent_steps=cfg["model"]["num_latent_steps"])
     # Then create the model with this config
-    model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"], config=config)
+    model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
-    # Add special tokens for latent reasoning
-    tokenizer.add_special_tokens({
-            "additional_special_tokens": [
-                "<|start-latent|>",
-                "<|end-latent|>",
-                "<|latent|>"
-            ]
-        })
-    model.resize_token_embeddings(len(tokenizer))
+    
+    # Define new tokens for latent steps
+    START = "<|start-latent|>"
+    LAT   = "<|latent|>"
+    END   = "<|end-latent|>"
+    new_specials = [START, LAT, END]
+
+    # 3) Add them to the tokenizer’s vocab
+    tokenizer.add_special_tokens({"additional_special_tokens": new_specials})
+    model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
+
+    # 4) “Save” them as attributes for easy access
+    tokenizer.start_latent_token   = START
+    tokenizer.latent_token         = LAT
+    tokenizer.end_latent_token     = END
+
+    tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
+    tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
+    tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
+
+    # mirror them on your model
+    model.start_latent_token_id = tokenizer.start_latent_token_id
+    model.latent_token_id       = tokenizer.latent_token_id
+    model.end_latent_token_id   = tokenizer.end_latent_token_id
     
     # Get the embedding layer correctly
     embedding_layer = model.get_input_embeddings()
     
     # Init the new latent tokens
     vocab = tokenizer.get_vocab()
-    sid = vocab.get("<|start-latent|>")
-    eid = vocab.get("<|end-latent|>")
-    lid = vocab.get("<|latent|>")
-    
     # Use torch.no_grad() to safely modify the weights
     with torch.no_grad():
-        # copy from similar tokens
-        if "<|im_start|>" in vocab and sid is not None:
-            embedding_layer.weight[sid] = embedding_layer.weight[vocab["<|im_start|>"]].clone()
-        if "<|im_end|>" in vocab and eid is not None:
-            embedding_layer.weight[eid] = embedding_layer.weight[vocab["<|im_end|>"]].clone()
-        # init latent token with 0s since it won't be feed to the model ever
-        if lid is not None:
-            embedding_layer.weight[lid] = torch.zeros_like(embedding_layer.weight[0])
-
+        # copy existing tokens
+        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["="]].clone()
+        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab[">"]].clone()
+    
+    # GRPO trainer
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
