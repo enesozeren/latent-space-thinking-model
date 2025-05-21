@@ -42,11 +42,8 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """
     question = example["problem"].strip()
     answer = example["answer"].strip()
-    
-    if is_latent_reasoner:
-        prompt = SYSTEM_PROMPT_LATENT_REASONER + "\nUser:" + question + "\nAssistant: <|start-latent|>"
-    else:
-        prompt = SYSTEM_PROMPT + "\nUser:" + question + "\nAssistant:"
+    sys_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
+    prompt = sys_prompt + "\nUser:" + question + "\nAssistant:"
 
     return {
         "prompt": prompt,

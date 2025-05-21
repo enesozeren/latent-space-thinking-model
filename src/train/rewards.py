@@ -5,7 +5,7 @@ from typing import Optional, List, Union
 from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
-def accuracy_reward(*, prompts: List[str], completions: List[Union[str, List[dict]]], answer: List[str]) -> List[Optional[float]]:
+def accuracy_reward(completions: List[Union[str, List[dict]]], answer: List[str], **kwargs) -> List[Optional[float]]:
     """
     Reward function that checks for:
       - Exact match => 1.0

@@ -138,7 +138,7 @@ if __name__ == "__main__":
     new_specials = [START, LAT, END]
 
     # 3) Add them to the tokenizer’s vocab
-    tokenizer.add_special_tokens({"additional_special_tokens": new_specials})
+    tokenizer.add_tokens(new_specials)
     model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
 
     # 4) “Save” them as attributes for easy access
