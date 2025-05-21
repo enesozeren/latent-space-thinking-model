@@ -173,12 +173,85 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
 
     return rewards
 
+
+def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> List[float]:
+    """
+    Reward function that checks for:
+      - Exactly one <|start-latent|>…<|end-latent|> and one <answer>…</answer>.
+      - Full match: <|start-latent|>…<|end-latent|> immediately followed by <answer>…\\boxed{…}…</answer>
+      - Partial match: <|start-latent|>…<|end-latent|> immediately followed by <answer>…</answer> (no \\boxed)
+      - Negative reward: any of <|start-latent|> <|end-latent|> <|latent|> tokens are present after the first <|end-latent|> token
+      - Otherwise => Zero reward
+    """
+    full_reward = 1.0
+    partial_reward = 0.5
+    negative_reward = -1.0
+    zero_reward = 0.0
+
+    full_pattern = re.compile(
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+        re.DOTALL
+    )
+    partial_pattern = re.compile(
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>.*?</answer>$",
+        re.DOTALL
+    )
+
+    # Handle both string completions (base models) and chat completions (instruction-tuned models)
+    contents = []
+    for completion in completions:
+        if isinstance(completion, str):
+            contents.append(completion)
+        elif isinstance(completion, list):
+            # For chat format (list of dicts)
+            contents.append(completion[0]["content"])
+        else:
+            # For direct dict format
+            contents.append(completion.get("content", completion))
+
+    rewards: List[float] = []
+    for content in contents:
+        # support dict-based or plain-string completions
+        text = content.get("content", content) if isinstance(content, dict) else content
+
+        # 0) check for negative reward
+        # if any of <|start-latent|> <|end-latent|> <|latent|> tokens are present after the first <|end-latent|> token
+        first_end_idx = text.find("<|end-latent|>")
+        if first_end_idx != -1:
+            remainder = text[first_end_idx + len("<|end-latent|>") :]
+            if re.search(r"<\|(start-latent|end-latent|latent)\|>", remainder):
+                rewards.append(negative_reward)
+                continue  # skip further checks for this completion        
+
+        # 1) must have exactly one <|start-latent|>..<|end-latent|>
+        all_thinks = re.findall(r"<\|start-latent\|>.*?<\|end-latent\|>", text, re.DOTALL)
+        if len(all_thinks) != 1:
+            rewards.append(zero_reward)
+            continue
+
+        # 2) must have exactly one <answer>..</answer>
+        all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
+        if len(all_answers) != 1:
+            rewards.append(zero_reward)
+            continue
+
+        # 3) strip and apply patterns
+        stripped = text.strip()
+        if full_pattern.match(stripped):
+            rewards.append(full_reward)
+        elif partial_pattern.match(stripped):
+            rewards.append(partial_reward)
+        else:
+            rewards.append(zero_reward)
+
+    return rewards
+
 # # Example
-# # === Example 2: Symbolic expression ===
+# # === Example: Symbolic expression ===
 # RESPONSE2 = r"""
-# <think> sd </think>
+# <|start-latent|><|latent|><|latent|><|latent|><|end-latent|>
 # <answer>
-# reasoning process here \\boxed{-\dfrac{1}{4}}
+# sth here is the answer \\boxed{-\dfrac{1}{4}}
 # </answer>
 # """
 
@@ -187,7 +260,7 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
 
 # # Run the checks
 # for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
-#     f_r = format_reward(completions=[resp])
+#     f_r = latent_model_format_reward(completions=[resp])
 #     a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
 #     print(f"Example {i} format_reward: {f_r}")
 #     print(f"Example {i} accuracy_reward: {a_r}")
