@@ -2,13 +2,14 @@ transformers==4.51.3
 datasets==3.5.0
 numpy==2.2.4
 torch==2.6.0
-trl==0.16.1
+# trl==0.17.0
+-e /dss/dsshome1/0B/ra32qov2/other-repos/trl
 peft==0.15.2
 accelerate==1.6.0
 tqdm==4.67.1
 pyyaml==6.0.2
 scikit-learn==1.6.1
 wandb==0.19.9
-vllm==0.8.1
+# vllm==0.8.1
 math_verify==0.7.0
 latex2sympy2_extended==1.10.1
