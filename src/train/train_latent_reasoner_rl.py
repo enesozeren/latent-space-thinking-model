@@ -148,8 +148,8 @@ def train_model(config_path: str) -> None:
     # Use torch.no_grad() to safely modify the weights
     with torch.no_grad():
         # copy existing tokens
-        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["="]].clone()
-        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab[">"]].clone()
+        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
+        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
     
     # GRPO trainer
     trainer = GRPOTrainer(

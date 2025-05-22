@@ -11,7 +11,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         self,
         input_ids,
         attention_mask=None,
-        num_latent_steps: int = 5,
+        num_latent_steps: int = 3,
     ):
         """
         1. Append <|start-latent|>
@@ -19,6 +19,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         3. Append <|end-latent|>
         Returns: inputs_embeds, attention_mask  (same shapes)
         """
+        assert num_latent_steps >= 3, "num_latent_steps must be at least 3 (start, latent, end)"
         batch_size = input_ids.size(0)
         device = input_ids.device
 
@@ -79,7 +80,7 @@ class LatentReasoner(Qwen2ForCausalLM):
 
         return inputs_embeds, attention_mask
 
-    def generate(self, input_ids=None, attention_mask=None, num_latent_steps: int = 5, **gen_kwargs):
+    def generate(self, input_ids=None, attention_mask=None, num_latent_steps: int = 3, **gen_kwargs):
         """
         Generate text using the model with latent reasoning.
         Returns completion token ids and prompt+completion embeddings.
