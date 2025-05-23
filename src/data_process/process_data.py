@@ -8,7 +8,10 @@ import logging
 def prepare_dataset(config: dict) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
     # Check if the model is a latent reasoner
-    is_latent_reasoner = config["model"]["model_name_or_path"] == "LatentReasoner"
+    is_latent_reasoner = (
+        config["model"]["model_name_or_path"] == "LatentReasoner" 
+        and config["model"]["num_latent_steps"] > 0
+    )
     
     raw_ds = load_dataset(config["dataset"]["name"], "default")
     

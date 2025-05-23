@@ -3,8 +3,8 @@
 #SBATCH -q mcml
 #SBATCH --gres=gpu:4
 #SBATCH --time=0-01:00:00
-#SBATCH -o bash_outputs/output_latent_reasoner_qwen2p5_1p5b_rl_openr1data.log
-#SBATCH -e bash_outputs/error_latent_reasoner_qwen2p5_1p5b_rl_openr1data.log
+#SBATCH -o bash_outputs/output_latent_reasoner_numlat0_1p5b_rl.log
+#SBATCH -e bash_outputs/error_latent_reasoner_numlat0_1p5b_rl.log
 
 # Activate environment & set PYTHONPATH
 source activate latr_2

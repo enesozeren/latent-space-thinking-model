@@ -1,6 +1,7 @@
 model:
   model_name_or_path: "LatentReasoner"
   base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
+  num_latent_steps: 0
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
@@ -35,4 +36,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: latent_reasoner_qwen2p5_1p5b_rl_openr1math
+  run_name: latent_reasoner_numlat0_1p5b_rl
