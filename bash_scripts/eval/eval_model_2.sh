@@ -2,22 +2,23 @@
 #SBATCH -p lrz-hgx-h100-94x4
 #SBATCH --gres=gpu:2
 #SBATCH --time=0-01:00:00
-#SBATCH -o bash_outputs/output_qwen_chekpoint600_math500_eval.log
-#SBATCH -e bash_outputs/error_qwen_chekpoint600_math500_eval.log
+#SBATCH -o bash_outputs/output_qwen_3b_rl_checkpoint100_math500_eval.log
+#SBATCH -e bash_outputs/error_qwen_3b_rl_checkpoint100_math500_eval.log
 
 # Activate environment & set PYTHONPATH
-source activate latr
+source /dss/dsshome1/0B/ra32qov2/anaconda3/etc/profile.d/conda.sh
+conda activate latr
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Model details
-# MODEL_NAME_OR_PATH="Qwen/Qwen2.5-1.5B"
-MODEL_NAME_OR_PATH="/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen2p5_1p5b_rl/20250502_000432/checkpoint-600/"
+# MODEL_NAME_OR_PATH="Qwen/Qwen2.5-3B"
+MODEL_NAME_OR_PATH="/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen2p5_3b_rl/20250504_122118/checkpoint-100"
 
 # Output directory for results
 OUTPUT_DIR="outputs"
 
 # Evaluation parameters
-DATASET="HuggingFaceH4/MATH-500"
+DATASET="HuggingFaceH4/MATH-500" # Either openai/gsm8k or HuggingFaceH4/MATH-500
 BATCH_SIZE=16
 MAX_LENGTH=1024
 TEMPERATURE=0.7

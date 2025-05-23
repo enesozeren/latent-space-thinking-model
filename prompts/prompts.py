@@ -8,10 +8,11 @@ i.e., <think> reasoning process here </think> <answer> \\boxed{...} </answer>
 
 SYSTEM_PROMPT_LATENT_REASONER=r"""
 A conversation between User and Assistant. The user asks a question, and the Assistant solves it. 
-The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. 
-The reasoning process and answer are enclosed within <|start-latent|> <|end-latent|> and <answer> </answer> tags, respectively and the answer is boxed using \\boxed{...}.
-Output only those two tagged blocks, in that order, nothing else.
-i.e., <|start-latent|> reasoning process here <|end-latent|> <answer> \\boxed{...} </answer>
+The assistant first thinks about the reasoning process in the latent-space without using language.
+Then it provides the user with the reasoning in latent-space, reasoning in language-space and the answer. 
+The reasoning in latent-space, in language-space and answer are enclosed within <|start-latent|> <|end-latent|>, <think> </think> and <answer> </answer> tags, respectively and the answer is boxed using \\boxed{...}.
+Output only those three tagged blocks, in that order, nothing else.
+i.e., <|start-latent|> reasoning in latent here <|end-latent|> <think> reasoning in language here </think> <answer> \\boxed{...} </answer>
 """
 
 SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL=r"""

@@ -19,7 +19,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         3. Append <|end-latent|>
         Returns: inputs_embeds, attention_mask  (same shapes)
         """
-        assert num_latent_steps >= 3, "num_latent_steps must be at least 3 (start, latent, end)"
+        assert num_latent_steps > 0, "num_latent_steps must be at least 1 to run the latent loop"
         batch_size = input_ids.size(0)
         device = input_ids.device
 
@@ -45,7 +45,6 @@ class LatentReasoner(Qwen2ForCausalLM):
         position_ids = torch.arange(0, seq_length, dtype=torch.long, device=device)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
-        num_latent_steps = num_latent_steps - 2 # - 2 for start and end latent tokens
         for _ in range(num_latent_steps):
             outputs = self(
                 inputs_embeds=inputs_embeds,
@@ -85,43 +84,51 @@ class LatentReasoner(Qwen2ForCausalLM):
         Generate text using the model with latent reasoning.
         Returns completion token ids and prompt+completion embeddings.
         """
-        if input_ids is not None:
-            # augment with latent steps
-            inputs_embeds, attention_mask = self._prepare_latent_context(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                num_latent_steps=num_latent_steps
-            )
+        assert input_ids is not None, "input_ids must be provided for LatentReasoner.generate()"
+        assert num_latent_steps >= 0, "num_latent_steps must be positive or zero"
 
-            # call the base generator
-            # The base generater will return only the generated token ids 
-            # since it doesn't have the input token ids but only the input embeddings
-            completion_language_token_ids = super().generate(
-                inputs_embeds=inputs_embeds,
+        if num_latent_steps == 0:
+            # If no latent steps are requested, just call the base generator
+            return super().generate(
+                input_ids=input_ids,
                 attention_mask=attention_mask,
                 **gen_kwargs,
             )
 
-            # Append the completion embeddings to the inputs_embeds
-            completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
-            prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
-            # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
-            batch_size = completion_language_token_ids.size(0)
-            device = completion_language_token_ids.device
-            dtype = completion_language_token_ids.dtype
-            
-            # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
-            latent_ids = torch.ones((batch_size, num_latent_steps), 
-                                    dtype=dtype, device=device) * self.latent_token_id
-            latent_ids[:, 0] = self.start_latent_token_id
-            latent_ids[:, -1] = self.end_latent_token_id
-            
-            # Concatenate with completion language tokens
-            completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)            
+        # augment with latent steps
+        inputs_embeds, attention_mask = self._prepare_latent_context(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            num_latent_steps=num_latent_steps
+        )
 
-            return completion_token_ids, prompt_completion_embeds
-        else:
-            raise ValueError("input_ids must be provided for LatentReasoner.generate()")
+        # call the base generator
+        # The base generater will return only the generated token ids 
+        # since it doesn't have the input token ids but only the input embeddings
+        completion_language_token_ids = super().generate(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            **gen_kwargs,
+        )
+
+        # Append the completion embeddings to the inputs_embeds
+        completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
+        prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
+        # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
+        batch_size = completion_language_token_ids.size(0)
+        device = completion_language_token_ids.device
+        dtype = completion_language_token_ids.dtype
+        
+        # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
+        latent_ids = torch.ones((batch_size, num_latent_steps+2),  # +2 for start and end latent tokens
+                                dtype=dtype, device=device) * self.latent_token_id
+        latent_ids[:, 0] = self.start_latent_token_id
+        latent_ids[:, -1] = self.end_latent_token_id
+        
+        # Concatenate with completion language tokens
+        completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)            
+
+        return completion_token_ids, prompt_completion_embeds
 
 
 if __name__ == "__main__":

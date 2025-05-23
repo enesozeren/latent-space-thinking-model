@@ -177,9 +177,9 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
 def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> List[float]:
     """
     Reward function that checks for:
-      - Exactly one <|start-latent|>…<|end-latent|> and one <answer>…</answer>.
-      - Full match: <|start-latent|>…<|end-latent|> immediately followed by <answer>…\\boxed{…}…</answer>
-      - Partial match: <|start-latent|>…<|end-latent|> immediately followed by <answer>…</answer> (no \\boxed)
+      - Exactly one <|start-latent|>…<|end-latent|>, <think>…</think> and <answer>…</answer> blocks.
+      - Full match: <|start-latent|>…<|end-latent|> <think>…</think> <answer>…\\boxed{…}…</answer>
+      - Partial match: <|start-latent|>…<|end-latent|> <think>…</think> <answer>…</answer> (no \\boxed)
       - Negative reward: any of <|start-latent|> <|end-latent|> <|latent|> tokens are present after the first <|end-latent|> token
       - Otherwise => Zero reward
     """
@@ -189,11 +189,11 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
     zero_reward = 0.0
 
     full_pattern = re.compile(
-        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
         re.DOTALL
     )
     partial_pattern = re.compile(
-        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>.*?</answer>$",
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<think>.*?</think>\s*<answer>.*?</answer>$",
         re.DOTALL
     )
 
@@ -224,12 +224,18 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
                 continue  # skip further checks for this completion        
 
         # 1) must have exactly one <|start-latent|>..<|end-latent|>
-        all_thinks = re.findall(r"<\|start-latent\|>.*?<\|end-latent\|>", text, re.DOTALL)
+        all_latent_thinks = re.findall(r"<\|start-latent\|>.*?<\|end-latent\|>", text, re.DOTALL)
+        if len(all_latent_thinks) != 1:
+            rewards.append(zero_reward)
+            continue
+
+        # 2) must have exactly one <think>…</think>
+        all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
         if len(all_thinks) != 1:
             rewards.append(zero_reward)
             continue
 
-        # 2) must have exactly one <answer>..</answer>
+        # 3) must have exactly one <answer>..</answer>
         all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)
         if len(all_answers) != 1:
             rewards.append(zero_reward)
@@ -250,6 +256,9 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
 # # === Example: Symbolic expression ===
 # RESPONSE2 = r"""
 # <|start-latent|><|latent|><|latent|><|latent|><|end-latent|>
+# <think>
+# here is the reasoning in language space
+# </think>
 # <answer>
 # sth here is the answer \\boxed{-\dfrac{1}{4}}
 # </answer>
@@ -260,7 +269,7 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
 
 # # Run the checks
 # for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
-#     f_r = latent_model_format_reward(completions=[resp])
+#     f_r = latent_format_reward(completions=[resp])
 #     a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
 #     print(f"Example {i} format_reward: {f_r}")
 #     print(f"Example {i} accuracy_reward: {a_r}")
