@@ -157,7 +157,7 @@ def train_model(config_path: str) -> None:
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=[latent_format_reward if cfg["model"]["num_latent_steps"] > 0 else format_reward, accuracy_reward],
+        reward_funcs=[latent_format_reward, accuracy_reward],
         args=args,
         train_dataset=data["train"],
         eval_dataset=data["validation"],

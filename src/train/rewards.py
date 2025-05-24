@@ -252,24 +252,25 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
 
     return rewards
 
-# # Example
-# # === Example: Symbolic expression ===
-# RESPONSE2 = r"""
-# <|start-latent|><|latent|><|latent|><|latent|><|end-latent|>
-# <think>
-# here is the reasoning in language space
-# </think>
-# <answer>
-# sth here is the answer \\boxed{-\dfrac{1}{4}}
-# </answer>
-# """
+if __name__ == "__main__":
+    # Example
+    # === Example: Symbolic expression ===
+    RESPONSE2 = r"""
+    <|start-latent|><|latent|><|latent|><|latent|><|end-latent|>
+    <think>
+    here is the reasoning in language space
+    </think>
+    <answer>
+    sth here is the answer \\boxed{-\dfrac{1}{4}}
+    </answer>
+    """
 
-# # Ground-truth answer for accuracy_reward:
-# ANSWER2 = r"-\dfrac{1}{4}"
+    # Ground-truth answer for accuracy_reward:
+    ANSWER2 = r"-\dfrac{1}{4}"
 
-# # Run the checks
-# for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
-#     f_r = latent_format_reward(completions=[resp])
-#     a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
-#     print(f"Example {i} format_reward: {f_r}")
-#     print(f"Example {i} accuracy_reward: {a_r}")
+    # Run the checks
+    for i, (resp, ans) in enumerate([(RESPONSE2, ANSWER2)], start=1):
+        f_r = latent_format_reward(completions=[resp])
+        a_r = accuracy_reward(prompts=[""], completions=[resp], answer=[ans])
+        print(f"Example {i} format_reward: {f_r}")
+        print(f"Example {i} accuracy_reward: {a_r}")

@@ -1,14 +1,14 @@
 model:
-  model_name_or_path: "LatentReasoner"
+  model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_rl"
   base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
-  num_latent_steps: 0
+  num_latent_steps: 1
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
 
 training:
   seed: 42
-  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_rl"
+  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_rl_part2"
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 8
@@ -36,4 +36,4 @@ grpo:
 
 wandb:
   project: latent_reasoner
-  run_name: latent_reasoner_numlat0_1p5b_rl
+  run_name: latent_reasoner_numlat1_1p5b_rl_part2
