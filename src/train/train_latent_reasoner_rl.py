@@ -105,11 +105,11 @@ def train_model(config_path: str) -> None:
     logging.info("Configuration file contents:\n%s", config_content)
     
     # Prepare the dataset
-    data = prepare_dataset(cfg)
-    
-    # Arguments
-    args = setup_training_args(cfg)
+    data = prepare_dataset(config=cfg, is_latent_reasoner=True)
 
+    # Arguments
+    args = setup_training_args(config=cfg)
+    
     # Model and tokenizer
     # Then create the model with this config
     model = LatentReasoner.from_pretrained(cfg["model"]["model_name_or_path"])

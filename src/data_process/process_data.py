@@ -5,11 +5,8 @@ from prompts.prompts import (
 )
 import logging
 
-def prepare_dataset(config: dict) -> DatasetDict:
+def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
-    # Check if the model is a latent reasoner
-    is_latent_reasoner = config["model"]["model_name_or_path"] == "LatentReasoner"
-    
     raw_ds = load_dataset(config["dataset"]["name"], "default")
     
     # Since there's only a train split in DeepMath-103K, create train/val splits
@@ -28,6 +25,7 @@ def prepare_dataset(config: dict) -> DatasetDict:
     
     # Log the dataset split sizes
     logger = logging.getLogger(__name__)
+    logger.info(f"Is LatR?: {is_latent_reasoner}")    
     logger.info("Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
