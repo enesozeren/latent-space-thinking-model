@@ -112,11 +112,11 @@ def train_model(config_path: str) -> None:
 
     # Model and tokenizer
     # Then create the model with this config
-    model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    model = LatentReasoner.from_pretrained(cfg["model"]["model_name_or_path"])
     # Set the number of latent steps for the model
     model.num_latent_steps = cfg["model"]["num_latent_steps"]
     # Load the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["model_name_or_path"])
 
     # Define new tokens for latent steps
     START = "<|start-latent|>"
@@ -124,34 +124,45 @@ def train_model(config_path: str) -> None:
     END   = "<|end-latent|>"
     new_specials = [START, LAT, END]
 
-    # 3) Add them to the tokenizer’s vocab
-    tokenizer.add_tokens(new_specials)
-    model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
+    # Only add / resize / init if it is not the first training run
+    if not all(tok in tokenizer.get_vocab() for tok in new_specials):
+        # 3) Add them to the tokenizer’s vocab
+        tokenizer.add_tokens(new_specials)
+        model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
 
-    # 4) “Save” them as attributes for easy access
-    tokenizer.start_latent_token   = START
-    tokenizer.latent_token         = LAT
-    tokenizer.end_latent_token     = END
+        # 4) “Save” them as attributes for easy access
+        tokenizer.start_latent_token   = START
+        tokenizer.latent_token         = LAT
+        tokenizer.end_latent_token     = END
 
-    tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
-    tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
-    tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
+        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
+        tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
+        tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
 
-    # mirror them on your model
-    model.start_latent_token_id = tokenizer.start_latent_token_id
-    model.latent_token_id       = tokenizer.latent_token_id
-    model.end_latent_token_id   = tokenizer.end_latent_token_id
-    
-    # Get the embedding layer correctly
-    embedding_layer = model.get_input_embeddings()
-    
-    # Init the new latent tokens
-    vocab = tokenizer.get_vocab()
-    # Use torch.no_grad() to safely modify the weights
-    with torch.no_grad():
-        # copy existing tokens
-        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
-        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
+        # mirror them on your model
+        model.start_latent_token_id = tokenizer.start_latent_token_id
+        model.latent_token_id       = tokenizer.latent_token_id
+        model.end_latent_token_id   = tokenizer.end_latent_token_id
+        
+        # Get the embedding layer correctly
+        embedding_layer = model.get_input_embeddings()
+        
+        # Init the new latent tokens
+        vocab = tokenizer.get_vocab()
+        # Use torch.no_grad() to safely modify the weights
+        with torch.no_grad():
+            # copy existing tokens
+            embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
+            embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
+    else:
+        # tokens already there – still handy to have the ids on the objects
+        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
+        tokenizer.latent_token_id = tokenizer.convert_tokens_to_ids(LAT)
+        tokenizer.end_latent_token_id = tokenizer.convert_tokens_to_ids(END)
+        model.start_latent_token_id = tokenizer.start_latent_token_id
+        model.latent_token_id = tokenizer.latent_token_id
+        model.end_latent_token_id = tokenizer.end_latent_token_id
+        logging.info("Special tokens already present – skipping re-initialisation.")        
     
     # GRPO trainer
     trainer = GRPOTrainer(

@@ -3,15 +3,15 @@
 #SBATCH -q mcml
 #SBATCH --gres=gpu:4
 #SBATCH --time=0-01:00:00
-#SBATCH -o bash_outputs/output_latent_reasoner_numlat0_1p5b_rl.log
-#SBATCH -e bash_outputs/error_latent_reasoner_numlat0_1p5b_rl.log
+#SBATCH -o bash_outputs/output_latent_reasoner_numlat1_1p5b_rl_part2.log
+#SBATCH -e bash_outputs/error_latent_reasoner_numlat1_1p5b_rl_part2.log
 
 # Activate environment & set PYTHONPATH
 source activate latr_2
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/other-repos/latent-reasoner
 
 # Config and number of processes for training
-CONFIG_PATH="src/configs/latent_reasoner_rl.yaml"
+CONFIG_PATH="src/configs/latent_reasoner_rl_part2.yaml"
 NUM_PROCESSES=4
 
 # Launch GRPO training
