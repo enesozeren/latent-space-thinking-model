@@ -5,11 +5,9 @@ import logging
 import wandb
 from datetime import datetime
 import torch
-from trl import GRPOTrainer, GRPOConfig
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, Trainer, TrainingArguments
 
-from src.train.rewards import format_reward, latent_format_reward, accuracy_reward
-from src.data_process.process_data import prepare_dataset
+from src.data_process.process_data import prepare_dataset_latent_reasoning_sft
 from src.latent_reasoner.model import LatentReasoner
 
 def load_config(config_path):
@@ -17,9 +15,9 @@ def load_config(config_path):
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
-def setup_training_args(config: dict) -> GRPOConfig:
-    """Translate YAML `training` + `grpo` sections into a GRPOConfig."""
-    return GRPOConfig(
+def setup_training_args(config: dict) -> TrainingArguments:
+    """Translate YAML `training` + `sft` sections into a TrainingArguments."""
+    return TrainingArguments(
         seed=config["training"]["seed"],
         output_dir=config["training"]["output_dir"],
         per_device_train_batch_size=config["training"]["per_device_train_batch_size"],
@@ -34,25 +32,9 @@ def setup_training_args(config: dict) -> GRPOConfig:
         save_steps=config["training"]["save_steps"],
         warmup_steps=config["training"]["warmup_steps"],
         weight_decay=config["training"]["weight_decay"],
-        # GRPO specific hps
-        beta=config["grpo"]["beta"],
-        epsilon=config["grpo"]["epsilon"],
-        scale_rewards=config["grpo"]["scale_rewards"],
-        num_generations=config["grpo"]["num_generations"],
-        max_completion_length=config["grpo"]["max_completion_length"],
-        temperature=config["grpo"]["temperature"],
         run_name=config.get("wandb", {}).get("run_name"),
         bf16=True,
-        dataloader_num_workers=0,
-        remove_unused_columns=False,
-        # Other args
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
-        ddp_find_unused_parameters=False,
-        log_completions=True,
-        use_vllm=False
-        # vllm_max_model_len=config["grpo"]["max_completion_length"]+1280,
-        # vllm_enable_prefix_caching=False
+        dataloader_num_workers=0
     )
 
 def train_model(config_path: str) -> None:
@@ -104,17 +86,9 @@ def train_model(config_path: str) -> None:
         config_content = f.read()
     logging.info("Configuration file contents:\n%s", config_content)
     
-    # Prepare the dataset
-    data = prepare_dataset(config=cfg, is_latent_reasoner=True)
-
-    # Arguments
-    args = setup_training_args(config=cfg)
-    
     # Model and tokenizer
     # Then create the model with this config
     model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
-    # Set the number of latent steps for the model
-    model.num_latent_steps = cfg["model"]["num_latent_steps"]
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
 
@@ -164,24 +138,29 @@ def train_model(config_path: str) -> None:
         model.end_latent_token_id = tokenizer.end_latent_token_id
         logging.info("Special tokens already present – skipping re-initialisation.")        
     
-    # GRPO trainer
-    trainer = GRPOTrainer(
+    # Prepare the dataset
+    data = prepare_dataset_latent_reasoning_sft(config=cfg, tokenizer=tokenizer)
+
+    # Arguments
+    args = setup_training_args(config=cfg)
+
+    # SFT trainer
+    trainer = Trainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=[latent_format_reward, accuracy_reward],
         args=args,
         train_dataset=data["train"],
-        eval_dataset=data["validation"],
+        eval_dataset=data["validation"]
     )
 
     trainer.train()
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a model using GRPO.")
+    parser = argparse.ArgumentParser(description="Train a Latent Reasoner with SFT")
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/latent_reasoner_rl.yaml",
+        default="src/configs/latent_reasoner_sft.yaml",
         help="Path to the configuration YAML file",
     )
     return parser.parse_args()

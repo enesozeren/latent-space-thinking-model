@@ -1,5 +1,5 @@
 model:
-  model_name_or_path: "LatentReasoner"
+  model_name: "LatentReasoner"
   base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
   num_latent_steps: 0
 

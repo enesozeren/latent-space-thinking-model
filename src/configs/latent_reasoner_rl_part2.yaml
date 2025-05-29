@@ -1,5 +1,6 @@
 model:
-  model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_rl/20250524_190110/checkpoint-50"
+  model_name: "LatentReasoner"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_rl/20250524_190110/checkpoint-50"
   num_latent_steps: 1
 
 dataset:

@@ -1,12 +1,21 @@
+import types
 import torch
 from transformers import Qwen2ForCausalLM, AutoTokenizer, Qwen2Config
+from transformers.modeling_outputs import ModelOutput
 
+class LatentReasonerOutput(ModelOutput):
+    loss: torch.FloatTensor
+    logits: torch.FloatTensor
 
 class LatentReasoner(Qwen2ForCausalLM):
 
     def __init__(self, config: Qwen2Config):
         super().__init__(config)
         self.num_latent_steps = 0
+        # Latent token ids to be set later
+        self.start_latent_token_id = None
+        self.latent_token_id = None
+        self.end_latent_token_id = None
 
     def _prepare_latent_context(
         self,
@@ -46,7 +55,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
         for _ in range(num_latent_steps):
-            outputs = self(
+            outputs = super(LatentReasoner, self).forward(
                 inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
@@ -86,6 +95,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         """
         assert input_ids is not None, "input_ids must be provided for LatentReasoner.generate()"
         assert self.num_latent_steps >= 0, "num_latent_steps must be positive int or zero"
+        max_new_tokens = gen_kwargs.get("max_new_tokens", None)
 
         # augment with latent steps
         inputs_embeds, attention_mask = self._prepare_latent_context(
@@ -94,22 +104,37 @@ class LatentReasoner(Qwen2ForCausalLM):
             attention_mask=attention_mask
         )
 
-        # call the base generator
-        # The base generater will return only the generated token ids when we pass inputs_embeds
-        # since it doesn't have the input token ids but only the input embeddings
-        completion_language_token_ids = super().generate(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            **gen_kwargs,
-        )
+        if max_new_tokens > 0:
+            # call the base generator
 
-        # Append the completion embeddings to the inputs_embeds
-        completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
-        prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
+            # But the super().generate must use original forward method from Qwen2ForCausalLM
+            # save a reference to LatentReasoner forward override
+            latent_reasoner_forward = self.forward
+            # bind the parent’s forward onto this instance
+            base_forward = types.MethodType(Qwen2ForCausalLM.forward, self)
+            self.forward = base_forward
+            
+            # The base generater will return only the generated token ids when we pass inputs_embeds
+            # since it doesn't have the input token ids but only the input embeddings
+            completion_language_token_ids = super().generate(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                **gen_kwargs,
+            )
+
+            # restore LatentReasoner forward override
+            self.forward = latent_reasoner_forward
+            
+            # Append the completion embeddings to the inputs_embeds
+            completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
+            prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
+        else:
+            prompt_completion_embeds = inputs_embeds
+        
         # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
-        batch_size = completion_language_token_ids.size(0)
-        device = completion_language_token_ids.device
-        dtype = completion_language_token_ids.dtype
+        batch_size = input_ids.size(0)
+        device = input_ids.device
+        dtype = input_ids.dtype
         
         # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
         latent_ids = torch.ones((batch_size, self.num_latent_steps+2),  # +2 for start and end latent tokens
@@ -118,9 +143,41 @@ class LatentReasoner(Qwen2ForCausalLM):
         latent_ids[:, -1] = self.end_latent_token_id
         
         # Concatenate with completion language tokens
-        completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
+        if max_new_tokens > 0:
+            completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
+        else:
+            completion_token_ids = latent_ids
 
         return completion_token_ids, prompt_completion_embeds
+    
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        inputs_embeds=None,
+        **kwargs
+    ):
+        """
+        Override forward to handle latent reasoning.
+        """
+        # Only batch size 1 is supported for now
+        if input_ids is not None and input_ids.size(0) != 1:
+            raise ValueError("LatentReasoner only supports batch size of 1 for now.")
+        if inputs_embeds is not None:
+            raise ValueError("LatentReasoner does not support inputs_embeds yet. " \
+            "Please use input_ids instead.")
+        
+        # Calculate the number of latent steps by counting the latent tokens
+        num_latent_steps = (input_ids[0] == self.latent_token_id).sum().item()
+
+        # Find the start latent token index
+        start_latent_index = (input_ids[0] == self.start_latent_token_id).nonzero(as_tuple=True)[0]
+
+        # Get the prompt_ids
+        prompt_ids = input_ids[0, :start_latent_index]
+        
+        pass
 
 
 if __name__ == "__main__":
@@ -129,7 +186,7 @@ if __name__ == "__main__":
     # Then create the model
     model = LatentReasoner.from_pretrained("Qwen/Qwen2.5-0.5B")
       # Set the number of latent steps for the model
-    model.num_latent_steps = 0
+    model.num_latent_steps = 3
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
     
@@ -188,7 +245,7 @@ if __name__ == "__main__":
     completion_token_ids, prompt_completion_embeds = model.generate(
         prompt_ids,
         attention_mask=attention_mask,
-        max_new_tokens=20,
+        max_new_tokens=0,
         do_sample=True,
         temperature=0.7,
         generation_config=None
