@@ -67,7 +67,7 @@ def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
                  [tokenizer.latent_token_id] * num_latent_steps + \
                  [tokenizer.end_latent_token_id]
 
-    # Tokenize prefix (question + assistant prompt) and answer separately
+    # Tokenize prefix and answer separately
     prefix_text = "\nUser:" + question + "\nAssistant:"
     prefix_tokens = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_tokens = tokenizer(answer, add_special_tokens=False).input_ids
@@ -78,14 +78,11 @@ def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
 
     # Create labels: mask prefix and latent with -100 so loss is only computed on answer tokens
     labels = [-100] * (len(prefix_tokens) + len(latent_ids)) + answer_tokens
-    # Optional explicit mask for clarity (1 for answer tokens, 0 otherwise)
-    label_mask = [0] * (len(prefix_tokens) + len(latent_ids)) + [1] * len(answer_tokens)
 
     return {
         "input_ids": input_ids,
         "attention_mask": attention_mask,
-        "labels": labels,
-        "label_mask": label_mask,
+        "labels": labels
     }
 
 

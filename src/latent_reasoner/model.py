@@ -1,11 +1,14 @@
 import types
 import torch
+from dataclasses import dataclass
+from typing import Optional
 from transformers import Qwen2ForCausalLM, AutoTokenizer, Qwen2Config
 from transformers.modeling_outputs import ModelOutput
 
+@dataclass
 class LatentReasonerOutput(ModelOutput):
-    loss: torch.FloatTensor
-    logits: torch.FloatTensor
+    loss: Optional[torch.FloatTensor] = None
+    logits: Optional[torch.FloatTensor] = None
 
 class LatentReasoner(Qwen2ForCausalLM):
 
@@ -97,7 +100,12 @@ class LatentReasoner(Qwen2ForCausalLM):
         if not isinstance(num_latent_steps, int) or num_latent_steps < 0:
             raise ValueError("`num_latent_steps` must be a non-negative integer")
         
-        max_new_tokens = gen_kwargs['generation_config'].max_new_tokens
+        try:
+            max_new_tokens = gen_kwargs['generation_config'].max_new_tokens
+        except (KeyError, AttributeError):
+            # either 'generation_config' isn't in the dict,
+            # or it doesn't have a .max_new_tokens attribute
+            max_new_tokens = gen_kwargs.get('max_new_tokens')
 
         # augment with latent steps
         inputs_embeds, attention_mask = self._prepare_latent_context(
@@ -158,6 +166,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         attention_mask=None,
         position_ids=None,
         inputs_embeds=None,
+        labels=None,
         **kwargs
     ):
         """
@@ -175,11 +184,37 @@ class LatentReasoner(Qwen2ForCausalLM):
 
         # Find the start latent token index
         start_latent_index = (input_ids[0] == self.start_latent_token_id).nonzero(as_tuple=True)[0]
+        end_latent_index = (input_ids[0] == self.end_latent_token_id).nonzero(as_tuple=True)[0]
 
         # Get the prompt_ids
         prompt_ids = input_ids[0, :start_latent_index]
+        # Get the answer part after the latent tokens
+        answer_ids = input_ids[0, end_latent_index + 1:]
+
+        # Call the generate method to get the prompt + latent step embeddings
+        completion_token_ids, prompt_completion_embeds = self.generate(
+            input_ids=prompt_ids.unsqueeze(0),
+            num_latent_steps=num_latent_steps,
+            max_new_tokens=0,  # No new tokens, just latent steps
+        )
         
-        pass
+        answer_embeds = self.get_input_embeddings()(answer_ids.unsqueeze(0))
+
+        # Concatenate the prompt + latent + answer embeddings
+        inputs_embeds = torch.cat([prompt_completion_embeds, answer_embeds], dim=1)
+        # Call the parent forward method
+        outputs = super().forward(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            labels=labels
+        )
+
+        # Return the outputs with the loss and logits
+        return LatentReasonerOutput(
+            loss=outputs.loss,
+            logits=outputs.logits
+        )
 
 
 if __name__ == "__main__":
@@ -246,7 +281,7 @@ if __name__ == "__main__":
     completion_token_ids, prompt_completion_embeds = model.generate(
         prompt_ids,
         attention_mask=attention_mask,
-        num_latent_steps=3,  # Set the number of latent steps        
+        num_latent_steps=0,  # Set the number of latent steps        
         max_new_tokens=10,
         do_sample=True,
         temperature=0.7,
