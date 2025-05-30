@@ -2,7 +2,7 @@ import types
 import torch
 from dataclasses import dataclass
 from typing import Optional
-from transformers import Qwen2ForCausalLM, AutoTokenizer, Qwen2Config
+from transformers import Qwen2ForCausalLM, Qwen2Config
 from transformers.modeling_outputs import ModelOutput
 
 @dataclass
@@ -210,93 +210,11 @@ class LatentReasoner(Qwen2ForCausalLM):
             labels=labels
         )
 
-        # Return the outputs with the loss and logits
-        return LatentReasonerOutput(
-            loss=outputs.loss,
-            logits=outputs.logits
-        )
-
-
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # Then create the model
-    model = LatentReasoner.from_pretrained("Qwen/Qwen2.5-0.5B")
-    # Set the number of latent steps for the model
-    # Load the tokenizer
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
-    
-    # Define new tokens for latent steps
-    START = "<|start-latent|>"
-    LAT   = "<|latent|>"
-    END   = "<|end-latent|>"
-    new_specials = [START, LAT, END]
-
-    # 3) Add them to the tokenizer’s vocab
-    tokenizer.add_tokens(new_specials)
-    model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
-
-    # 4) “Save” them as attributes for easy access
-    tokenizer.start_latent_token   = START
-    tokenizer.latent_token         = LAT
-    tokenizer.end_latent_token     = END
-
-    tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
-    tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
-    tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
-
-    # mirror them on your model
-    model.start_latent_token_id = tokenizer.start_latent_token_id
-    model.latent_token_id       = tokenizer.latent_token_id
-    model.end_latent_token_id   = tokenizer.end_latent_token_id
-    
-    # Get the embedding layer correctly
-    embedding_layer = model.get_input_embeddings()
-    
-    # Init the new latent tokens
-    vocab = tokenizer.get_vocab()
-    # Use torch.no_grad() to safely modify the weights
-    with torch.no_grad():
-        # copy existing tokens
-        embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["="]].clone()
-        embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab[">"]].clone()
-
-    # Define two prompts for batch processing
-    prompts = [
-        "User: What is the capital of Germany?",
-        "User: Can you explain quantum computing in simple terms?"
-    ]
-    
-    # Process both prompts
-    prompts = [p + "\nAssistant: " for p in prompts]
-    
-    # Tokenize batch of prompts
-    tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
-    prompt_ids = tokenized["input_ids"].to(device)
-    attention_mask = tokenized["attention_mask"].to(device)
-    # Print input shapes
-    print(f"Prompt IDs Shape: {prompt_ids.shape}")
-
-    # Generate responses for the batch
-    completion_token_ids, prompt_completion_embeds = model.generate(
-        prompt_ids,
-        attention_mask=attention_mask,
-        num_latent_steps=0,  # Set the number of latent steps        
-        max_new_tokens=10,
-        do_sample=True,
-        temperature=0.7,
-        generation_config=None
-    )
-
-    # Print the prompt_completion_embeds shape
-    print(f"Prompt Completion Embeds Shape: {prompt_completion_embeds.shape}")
-    # Print the completion_token_ids shape
-    print(f"Completion Token IDs Shape: {completion_token_ids.shape}")
-    # Decode the batch of generated responses
-    response_texts = tokenizer.batch_decode(completion_token_ids, skip_special_tokens=False)
-    
-    # Print each prompt and its corresponding response
-    for i, (prompt, response) in enumerate(zip(prompts, response_texts)):
-        print(f"Prompt {i+1}: {prompt!r}")
-        print(f"Response {i+1}: {response!r}")
-        print("-" * 50)
+        if labels is not None:
+            # Calculate loss per token
+            batch_size = labels.size(0)
+            labelled    = labels.ne(-100)
+            n_tokens    = labelled.sum()
+            outputs.loss  = outputs.loss * batch_size / n_tokens
+        
+        return LatentReasonerOutput(loss=outputs.loss, logits=outputs.logits)

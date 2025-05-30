@@ -13,13 +13,13 @@ training:
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 32
   lr_scheduler_type: "cosine_with_min_lr"
-  learning_rate: 1.0e-5
+  learning_rate: 5.0e-5
   lr_scheduler_kwargs:
     min_lr_rate: 0.1
   num_train_epochs: 1
   logging_steps: 1
-  eval_steps: 20
-  save_steps: 20
+  eval_steps: 5
+  save_steps: 100
   warmup_steps: 10
   weight_decay: 0.01
 

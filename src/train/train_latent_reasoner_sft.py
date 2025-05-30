@@ -34,7 +34,13 @@ def setup_training_args(config: dict) -> TrainingArguments:
         weight_decay=config["training"]["weight_decay"],
         run_name=config.get("wandb", {}).get("run_name"),
         bf16=True,
-        dataloader_num_workers=0
+        dataloader_num_workers=0,
+        # Enable evaluation and wandb logging
+        do_eval=True,
+        eval_strategy="steps",
+        report_to="wandb" if "wandb" in config and config["wandb"].get("project") else None,
+        logging_strategy="steps",
+        save_strategy="steps"
     )
 
 def train_model(config_path: str) -> None:
