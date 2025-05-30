@@ -11,7 +11,6 @@ class LatentReasoner(Qwen2ForCausalLM):
 
     def __init__(self, config: Qwen2Config):
         super().__init__(config)
-        self.num_latent_steps = 0
         # Latent token ids to be set later
         self.start_latent_token_id = None
         self.latent_token_id = None
@@ -88,18 +87,21 @@ class LatentReasoner(Qwen2ForCausalLM):
 
         return inputs_embeds, attention_mask
 
-    def generate(self, input_ids=None, attention_mask=None, **gen_kwargs):
+    def generate(self, input_ids=None, attention_mask=None, num_latent_steps=0, **gen_kwargs):
         """
         Generate text using the model with latent reasoning.
         Returns completion token ids and prompt+completion embeddings.
         """
         assert input_ids is not None, "input_ids must be provided for LatentReasoner.generate()"
-        assert self.num_latent_steps >= 0, "num_latent_steps must be positive int or zero"
-        max_new_tokens = gen_kwargs.get("max_new_tokens", None)
+
+        if not isinstance(num_latent_steps, int) or num_latent_steps < 0:
+            raise ValueError("`num_latent_steps` must be a non-negative integer")
+        
+        max_new_tokens = gen_kwargs['generation_config'].max_new_tokens
 
         # augment with latent steps
         inputs_embeds, attention_mask = self._prepare_latent_context(
-            num_latent_steps=self.num_latent_steps,
+            num_latent_steps=num_latent_steps,
             input_ids=input_ids,
             attention_mask=attention_mask
         )
@@ -137,7 +139,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         dtype = input_ids.dtype
         
         # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
-        latent_ids = torch.ones((batch_size, self.num_latent_steps+2),  # +2 for start and end latent tokens
+        latent_ids = torch.ones((batch_size, num_latent_steps+2),  # +2 for start and end latent tokens
                                 dtype=dtype, device=device) * self.latent_token_id
         latent_ids[:, 0] = self.start_latent_token_id
         latent_ids[:, -1] = self.end_latent_token_id
@@ -165,8 +167,8 @@ class LatentReasoner(Qwen2ForCausalLM):
         if input_ids is not None and input_ids.size(0) != 1:
             raise ValueError("LatentReasoner only supports batch size of 1 for now.")
         if inputs_embeds is not None:
-            raise ValueError("LatentReasoner does not support inputs_embeds yet. " \
-            "Please use input_ids instead.")
+            raise ValueError("LatentReasoner's forward method does not support inputs_embeds yet. " \
+            "Please use base model's foorward method if you need it.")
         
         # Calculate the number of latent steps by counting the latent tokens
         num_latent_steps = (input_ids[0] == self.latent_token_id).sum().item()
@@ -185,8 +187,7 @@ if __name__ == "__main__":
     
     # Then create the model
     model = LatentReasoner.from_pretrained("Qwen/Qwen2.5-0.5B")
-      # Set the number of latent steps for the model
-    model.num_latent_steps = 3
+    # Set the number of latent steps for the model
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
     
@@ -245,7 +246,8 @@ if __name__ == "__main__":
     completion_token_ids, prompt_completion_embeds = model.generate(
         prompt_ids,
         attention_mask=attention_mask,
-        max_new_tokens=0,
+        num_latent_steps=3,  # Set the number of latent steps        
+        max_new_tokens=10,
         do_sample=True,
         temperature=0.7,
         generation_config=None

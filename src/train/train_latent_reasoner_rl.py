@@ -113,8 +113,6 @@ def train_model(config_path: str) -> None:
     # Model and tokenizer
     # Then create the model with this config
     model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
-    # Set the number of latent steps for the model
-    model.num_latent_steps = cfg["model"]["num_latent_steps"]
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
 
@@ -172,6 +170,7 @@ def train_model(config_path: str) -> None:
         args=args,
         train_dataset=data["train"],
         eval_dataset=data["validation"],
+        num_latent_steps=cfg["model"]["num_latent_steps"]
     )
 
     trainer.train()

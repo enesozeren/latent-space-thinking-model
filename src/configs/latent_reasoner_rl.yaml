@@ -1,7 +1,7 @@
 model:
   model_name: "LatentReasoner"
   base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
-  num_latent_steps: 0
+  num_latent_steps: 0  # Number of latent steps to use in the generation  
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
