@@ -209,12 +209,5 @@ class LatentReasoner(Qwen2ForCausalLM):
             position_ids=position_ids,
             labels=labels
         )
-
-        if labels is not None:
-            # Calculate loss per token
-            batch_size = labels.size(0)
-            labelled    = labels.ne(-100)
-            n_tokens    = labelled.sum()
-            outputs.loss  = outputs.loss * batch_size / n_tokens
         
         return LatentReasonerOutput(loss=outputs.loss, logits=outputs.logits)

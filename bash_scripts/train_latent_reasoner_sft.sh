@@ -2,7 +2,7 @@
 #SBATCH -p mcml-hgx-a100-80x4
 #SBATCH -q mcml
 #SBATCH --gres=gpu:4
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-01:00:00
 #SBATCH -o bash_outputs/output_latent_reasoner_1p5b_sft.log
 #SBATCH -e bash_outputs/error_latent_reasoner_1p5b_sft.log
 
