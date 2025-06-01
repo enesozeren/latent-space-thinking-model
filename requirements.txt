@@ -13,3 +13,4 @@ wandb==0.19.9
 # vllm==0.8.1
 math_verify==0.7.0
 latex2sympy2_extended==1.10.1
+lightning==2.5.1.post0
