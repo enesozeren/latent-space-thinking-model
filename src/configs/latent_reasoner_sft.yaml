@@ -18,7 +18,7 @@ training:
   num_train_epochs: 1
   logging_steps: 1
   eval_steps: 128
-  save_steps: 1024
+  save_steps: 100
   weight_decay: 0.01
 
 wandb:

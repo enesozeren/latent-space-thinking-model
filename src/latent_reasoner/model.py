@@ -1,4 +1,3 @@
-import types
 import torch
 from dataclasses import dataclass
 from typing import Optional
@@ -39,6 +38,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         input_ids = torch.cat([input_ids, start_latents], dim=1)
 
         inputs_embeds = self.get_input_embeddings()(input_ids)
+        embed_chunks = [inputs_embeds]
 
         if attention_mask is None:
             # new length already includes the extra token
@@ -57,15 +57,20 @@ class LatentReasoner(Qwen2ForCausalLM):
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
         for _ in range(num_latent_steps):
-            outputs = super(LatentReasoner, self).forward(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                output_hidden_states=True,
-                return_dict=True,
-            )
-            step = outputs.hidden_states[-1][:, -1:, :]
-            inputs_embeds = torch.cat([inputs_embeds, step], dim=1)
+            with torch.no_grad():      # disable autograd for the sampling phase
+                outputs = super().forward(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    use_cache=False,          # no kv-cache needed inside training forward
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+
+            # use the last layer that is already returned by default
+            step = outputs.hidden_states[-1][:, -1:, :].detach()
+            del outputs
+            embed_chunks.append(step)
             
             # Update attention mask
             new_mask = torch.ones(inputs_embeds.size(0), 1, device=device, dtype=attention_mask.dtype)
@@ -74,6 +79,8 @@ class LatentReasoner(Qwen2ForCausalLM):
             # Update position_ids for the new token position
             new_positions = torch.full((batch_size, 1), position_ids.size(1), dtype=torch.long, device=device)
             position_ids = torch.cat([position_ids, new_positions], dim=1)
+        
+        inputs_embeds = torch.cat(embed_chunks, dim=1) 
 
         # Add the end latent token <|end-latent|>
         end_latent_embeds = self.get_input_embeddings()(
@@ -95,6 +102,9 @@ class LatentReasoner(Qwen2ForCausalLM):
         Generate text using the model with latent reasoning.
         Returns completion token ids and prompt+completion embeddings.
         """
+        # Clear CUDA cache to avoid memory issues
+        torch.cuda.empty_cache()
+
         assert input_ids is not None, "input_ids must be provided for LatentReasoner.generate()"
 
         if not isinstance(num_latent_steps, int) or num_latent_steps < 0:
@@ -115,25 +125,15 @@ class LatentReasoner(Qwen2ForCausalLM):
         )
 
         if max_new_tokens > 0:
-            # call the base generator
-
-            # But the super().generate must use original forward method from Qwen2ForCausalLM
-            # save a reference to LatentReasoner forward override
-            latent_reasoner_forward = self.forward
-            # bind the parent’s forward onto this instance
-            base_forward = types.MethodType(Qwen2ForCausalLM.forward, self)
-            self.forward = base_forward
-            
+            # Call the base generator
             # The base generater will return only the generated token ids when we pass inputs_embeds
             # since it doesn't have the input token ids but only the input embeddings
-            completion_language_token_ids = super().generate(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                **gen_kwargs,
-            )
-
-            # restore LatentReasoner forward override
-            self.forward = latent_reasoner_forward
+            with torch.no_grad():  
+                completion_language_token_ids = super().generate(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    **gen_kwargs,
+                ).detach()
             
             # Append the completion embeddings to the inputs_embeds
             completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
@@ -160,7 +160,7 @@ class LatentReasoner(Qwen2ForCausalLM):
 
         return completion_token_ids, prompt_completion_embeds
     
-    def forward(
+    def sft_forward(
         self,
         input_ids=None,
         attention_mask=None,

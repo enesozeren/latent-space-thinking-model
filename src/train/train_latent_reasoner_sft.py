@@ -150,7 +150,7 @@ class LatentReasonerLightningModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        outputs = self.forward(
+        outputs = self.model.sft_forward(
             input_ids=batch['input_ids'],
             attention_mask=batch['attention_mask'],
             labels=batch['labels']
