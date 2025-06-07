@@ -51,38 +51,54 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     }
 
 def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
-    """Process a single GSM8K example into SFT format with latent-reasoning tokens,
-    returning input_ids, attention_mask, labels, and an optional label_mask."""
+    """Process a single GSM8K example into SFT format with latent-reasoning tokens
+    and explicit <think>/<answer> sections.
+
+    Returns a dict with input_ids, attention_mask and labels.
+    """
+    # --- original pre-processing ------------------------------------------------
     question = example["question"].strip()
-    # Convert trailing '#### answer' to '\\boxed{answer}'
+
+    # Convert trailing “####  <value>” to “\boxed{<value>}”
     raw_answer = example.get("answer", "").strip()
-    # Replace '\n#### <value>' or '#### <value>' at end of string
-    answer = re.sub(r"(?:\\n)?####\s*(.+)$", r"\\boxed{\1}", raw_answer)
+    processed = re.sub(r"(?:\n)?####\s*(.+)$", r"\\boxed{\1}", raw_answer)
 
-    # Randomly determine the number of latent steps (between 1 and max_num_latent_steps)
+    # --- NEW: split CoT vs. boxed answer & wrap with tags ----------------------
+    # The first \boxed{ … } is taken as the final answer
+    m = re.search(r"\\boxed\{[^}]+\}", processed)
+    if m:
+        cot_text   = processed[:m.start()].rstrip()       # chain-of-thought
+        final_ans  = m.group()                            # boxed answer
+    else:                                                 # fall-back (shouldn’t happen)
+        cot_text, final_ans = processed, ""
+
+    think_block  = f"<think> {cot_text} </think>"
+    answer_block = f"<answer> {final_ans} </answer>"
+    assistant_response = think_block + "\n" + answer_block
+
+    # --- latent-token scaffold (unchanged) -------------------------------------
     num_latent_steps = torch.randint(1, max_num_latent_steps + 1, (1,)).item()
+    latent_ids = (
+        [tokenizer.start_latent_token_id] +
+        [tokenizer.latent_token_id] * num_latent_steps +
+        [tokenizer.end_latent_token_id]
+    )
 
-    # Build the latent token sequence
-    latent_ids = [tokenizer.start_latent_token_id] + \
-                 [tokenizer.latent_token_id] * num_latent_steps + \
-                 [tokenizer.end_latent_token_id]
+    # --- build final token sequence -------------------------------------------
+    prefix_text   = "\nUser: " + question + "\nAssistant:"
+    prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
+    answer_ids    = tokenizer(assistant_response, add_special_tokens=False).input_ids
 
-    # Tokenize prefix and answer separately
-    prefix_text = "\nUser:" + question + "\nAssistant:"
-    prefix_tokens = tokenizer(prefix_text, add_special_tokens=False).input_ids
-    answer_tokens = tokenizer(answer, add_special_tokens=False).input_ids
-
-    # Combine all token ids: prefix + latent tokens + answer
-    input_ids = prefix_tokens + latent_ids + answer_tokens
+    input_ids      = prefix_ids + latent_ids + answer_ids
     attention_mask = [1] * len(input_ids)
 
-    # Create labels: mask prefix and latent with -100 so loss is only computed on answer tokens
-    labels = [-100] * (len(prefix_tokens) + len(latent_ids)) + answer_tokens
+    # We still train on the whole think+answer block, so only prefix+latent are masked
+    labels = [-100] * (len(prefix_ids) + len(latent_ids)) + answer_ids
 
     return {
-        "input_ids": input_ids,
+        "input_ids":      input_ids,
         "attention_mask": attention_mask,
-        "labels": labels
+        "labels":         labels,
     }
 
 

@@ -1,4 +1,6 @@
+import types
 import torch
+import gc
 from dataclasses import dataclass
 from typing import Optional
 from transformers import Qwen2ForCausalLM, Qwen2Config
@@ -38,7 +40,6 @@ class LatentReasoner(Qwen2ForCausalLM):
         input_ids = torch.cat([input_ids, start_latents], dim=1)
 
         inputs_embeds = self.get_input_embeddings()(input_ids)
-        embed_chunks = [inputs_embeds]
 
         if attention_mask is None:
             # new length already includes the extra token
@@ -69,8 +70,12 @@ class LatentReasoner(Qwen2ForCausalLM):
 
             # use the last layer that is already returned by default
             step = outputs.hidden_states[-1][:, -1:, :].detach()
+            
+            # Clean up to save memory
             del outputs
-            embed_chunks.append(step)
+            torch.cuda.empty_cache()
+
+            inputs_embeds = torch.cat([inputs_embeds, step], 1)
             
             # Update attention mask
             new_mask = torch.ones(inputs_embeds.size(0), 1, device=device, dtype=attention_mask.dtype)
@@ -79,8 +84,6 @@ class LatentReasoner(Qwen2ForCausalLM):
             # Update position_ids for the new token position
             new_positions = torch.full((batch_size, 1), position_ids.size(1), dtype=torch.long, device=device)
             position_ids = torch.cat([position_ids, new_positions], dim=1)
-        
-        inputs_embeds = torch.cat(embed_chunks, dim=1) 
 
         # Add the end latent token <|end-latent|>
         end_latent_embeds = self.get_input_embeddings()(
@@ -138,8 +141,13 @@ class LatentReasoner(Qwen2ForCausalLM):
             # Append the completion embeddings to the inputs_embeds
             completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
             prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
+            
+            # Clean up intermediate tensors
+            del completion_embeds
         else:
             prompt_completion_embeds = inputs_embeds
+        
+        del inputs_embeds
         
         # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
         batch_size = input_ids.size(0)
@@ -157,6 +165,9 @@ class LatentReasoner(Qwen2ForCausalLM):
             completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
         else:
             completion_token_ids = latent_ids
+
+        # Final cleanup
+        torch.cuda.empty_cache()
 
         return completion_token_ids, prompt_completion_embeds
     

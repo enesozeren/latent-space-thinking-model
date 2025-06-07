@@ -142,7 +142,7 @@ class LatentReasonerLightningModule(L.LightningModule):
 
     def forward(self, input_ids, attention_mask, labels=None):
         """Forward pass through the model."""
-        return self.model(
+        return self.model.sft_forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels
@@ -150,7 +150,7 @@ class LatentReasonerLightningModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        outputs = self.model.sft_forward(
+        outputs = self.forward(
             input_ids=batch['input_ids'],
             attention_mask=batch['attention_mask'],
             labels=batch['labels']
@@ -221,6 +221,24 @@ class LatentReasonerDataModule(L.LightningDataModule):
         
         self.train_dataset = LatentReasonerDataset(data["train"])
         self.val_dataset = LatentReasonerDataset(data["validation"])
+
+        # 3. 👀  Show one training example for sanity-check
+        if len(self.train_dataset):                      # just in case
+            sample = self.train_dataset[0]
+
+            # decode the input text so it’s readable
+            decoded_prompt = self.tokenizer.decode(
+                sample["input_ids"],
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True,
+            )
+
+            print("\n=== Latent-Reasoner sanity check ===")
+            print("Prompt:\n", decoded_prompt)
+            # if you store the answer/label under another key, adjust here
+            if "labels" in sample:
+                print("\nLabel IDs:", sample["labels"])
+            print("====================================\n")        
 
     def train_dataloader(self):
         """Return training dataloader."""
