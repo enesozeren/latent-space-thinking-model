@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    model_name_or_path = "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250601_194044/final_model"
+    model_name_or_path = "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250607_135040/final_model"
     # Create the model
     model = LatentReasoner.from_pretrained(model_name_or_path).to(device)
     # Load the tokenizer
@@ -80,8 +80,8 @@ if __name__ == "__main__":
     completion_token_ids, prompt_completion_embeds = model.generate(
         prompt_ids,
         attention_mask=attention_mask,
-        num_latent_steps=15,  # Set the number of latent steps        
-        max_new_tokens=30,
+        num_latent_steps=10,  # Set the number of latent steps        
+        max_new_tokens=100,
         do_sample=True,
         temperature=0.7,
         generation_config=None

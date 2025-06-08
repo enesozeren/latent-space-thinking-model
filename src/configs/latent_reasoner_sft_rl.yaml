@@ -1,6 +1,6 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250601_194044/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250608_102146/final_model"
   num_latent_steps: 10
 
 dataset:

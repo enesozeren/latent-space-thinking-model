@@ -56,14 +56,12 @@ def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
 
     Returns a dict with input_ids, attention_mask and labels.
     """
-    # --- original pre-processing ------------------------------------------------
     question = example["question"].strip()
 
     # Convert trailing “####  <value>” to “\boxed{<value>}”
     raw_answer = example.get("answer", "").strip()
     processed = re.sub(r"(?:\n)?####\s*(.+)$", r"\\boxed{\1}", raw_answer)
 
-    # --- NEW: split CoT vs. boxed answer & wrap with tags ----------------------
     # The first \boxed{ … } is taken as the final answer
     m = re.search(r"\\boxed\{[^}]+\}", processed)
     if m:
@@ -76,7 +74,7 @@ def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
     answer_block = f"<answer> {final_ans} </answer>"
     assistant_response = think_block + "\n" + answer_block
 
-    # --- latent-token scaffold (unchanged) -------------------------------------
+    # latent-token scaffold
     num_latent_steps = torch.randint(1, max_num_latent_steps + 1, (1,)).item()
     latent_ids = (
         [tokenizer.start_latent_token_id] +
@@ -84,16 +82,18 @@ def _gsm8k_to_latent_reasoning_sft(example, tokenizer, max_num_latent_steps):
         [tokenizer.end_latent_token_id]
     )
 
-    # --- build final token sequence -------------------------------------------
+    # build token sequence
     prefix_text   = "\nUser: " + question + "\nAssistant:"
     prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_ids    = tokenizer(assistant_response, add_special_tokens=False).input_ids
 
-    input_ids      = prefix_ids + latent_ids + answer_ids
+    # Also add the eos token
+    eos_id = tokenizer.eos_token_id
+    input_ids      = prefix_ids + latent_ids + answer_ids + [eos_id]
     attention_mask = [1] * len(input_ids)
 
     # We still train on the whole think+answer block, so only prefix+latent are masked
-    labels = [-100] * (len(prefix_ids) + len(latent_ids)) + answer_ids
+    labels = [-100] * (len(prefix_ids) + len(latent_ids)) + answer_ids + [eos_id]
 
     return {
         "input_ids":      input_ids,

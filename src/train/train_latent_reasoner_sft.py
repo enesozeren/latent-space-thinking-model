@@ -229,11 +229,11 @@ class LatentReasonerDataModule(L.LightningDataModule):
             # decode the input text so it’s readable
             decoded_prompt = self.tokenizer.decode(
                 sample["input_ids"],
-                skip_special_tokens=True,
+                skip_special_tokens=False,
                 clean_up_tokenization_spaces=True,
             )
 
-            print("\n=== Latent-Reasoner sanity check ===")
+            print("\n=== Latent-Reasoner SFT Data Check ===")
             print("Prompt:\n", decoded_prompt)
             # if you store the answer/label under another key, adjust here
             if "labels" in sample:
@@ -261,6 +261,87 @@ class LatentReasonerDataModule(L.LightningDataModule):
             num_workers=4,
             pin_memory=True
         )
+
+
+class GenerateSamplesCallback(L.Callback):
+    """
+    After each validation epoch, generate answers for the *first* `num_samples`
+    examples in the validation set and log them.
+    """
+    def __init__(self, tokenizer, num_samples: int = 2):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.num_samples = num_samples
+
+    @torch.inference_mode()
+    def on_validation_epoch_end(
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule
+    ):
+        # Log for the main process only
+        if trainer.global_rank != 0:
+            return
+        
+        pl_module.eval()
+
+        # Grab val_dataset directly from the datamodule
+        val_dataset = trainer.datamodule.val_dataset
+        if val_dataset is None:
+            logging.warning("val_dataset is not available yet.")
+            return
+
+        # Always take the first `num_samples` examples (or fewer if the dataset is smaller)
+        indices = list(range(min(self.num_samples, len(val_dataset))))
+
+        for n, idx in enumerate(indices, start=1):
+            sample = val_dataset[idx]
+
+            # sample["input_ids"] is a tensor → convert to list[int]
+            full_ids_tensor = sample["input_ids"]
+            full_ids = full_ids_tensor.tolist()
+
+            # ── Cut just before the latent-token scaffold ───────────────────────
+            start_latent_id = self.tokenizer.start_latent_token_id
+            try:
+                cut_idx = full_ids.index(start_latent_id)      # first <|start-latent|>
+            except ValueError:
+                cut_idx = len(full_ids)                        # fallback if not found
+            prompt_ids = full_ids[:cut_idx]
+
+            # back to tensor for generation
+            input_ids = torch.tensor(prompt_ids, dtype=torch.long, device=pl_module.device).unsqueeze(0)
+            attention_mask = torch.ones_like(input_ids)
+
+            generated_ids = pl_module.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                num_latent_steps=10,
+                max_new_tokens=256,
+                do_sample=False
+            )
+
+            question = self.tokenizer.decode(
+                input_ids[0].tolist(),
+                skip_special_tokens=False,
+                clean_up_tokenization_spaces=True
+            )
+            seq = generated_ids[0] # first (and only) sequence
+            if isinstance(seq, torch.Tensor):
+                seq = seq.tolist()
+            # handle the "double bracket" case: [[1,2,3,…]]
+            if isinstance(seq, list) and seq and isinstance(seq[0], list):
+                seq = seq[0]
+
+            answer = self.tokenizer.decode(
+                seq,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True,
+            )
+
+            step = trainer.global_step
+            logging.info(f"[step {step}] [VAL Question {n}] ❓ {question}")
+            logging.info(f"[step {step}] [VAL Answer   {n}] 🤖 {answer}")
 
 
 def load_config(config_path):
@@ -330,8 +411,8 @@ def train_model(config_path: str) -> None:
         dirpath=os.path.join(output_dir, "checkpoints"),
         filename="checkpoint-{epoch:02d}-{step}",
         save_top_k=1, # Save top model based on validation loss
-        every_n_train_steps=cfg["training"]["save_steps"],
-        save_on_train_epoch_end=True
+        every_n_train_steps=None,
+        save_on_train_epoch_end=True # Only save at the end of each epoch
     )
     callbacks.append(checkpoint_callback)
     
@@ -342,6 +423,13 @@ def train_model(config_path: str) -> None:
     # Create data module
     data_module = LatentReasonerDataModule(cfg, tokenizer)
     
+    # Qualitative evaluation callback
+    sample_cb = GenerateSamplesCallback(
+        tokenizer=tokenizer,
+        num_samples=2
+    )
+    callbacks.append(sample_cb)
+
     # Create model
     model = LatentReasonerLightningModule(cfg, tokenizer)
     

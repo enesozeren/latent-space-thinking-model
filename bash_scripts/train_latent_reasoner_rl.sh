@@ -2,8 +2,8 @@
 #SBATCH -p lrz-hgx-h100-94x4 
 #SBATCH --gres=gpu:4
 #SBATCH --time=0-01:00:00
-#SBATCH -o bash_outputs/output_latent_reasoner_numlat1_1p5b_sft_rl.log
-#SBATCH -e bash_outputs/error_latent_reasoner_numlat1_1p5b_sft_rl.log
+#SBATCH -o bash_outputs/output_latent_reasoner_1p5b_sft_rl.log
+#SBATCH -e bash_outputs/error_latent_reasoner_1p5b_sft_rl.log
 
 # Activate environment & set PYTHONPATH
 source activate latr_2
