@@ -24,7 +24,8 @@ class LatentReasoner(Qwen2ForCausalLM):
         self,
         num_latent_steps,
         input_ids,
-        attention_mask=None
+        attention_mask=None,
+        track_grad=False
     ):
         """
         1. Append <|start-latent|>
@@ -57,24 +58,56 @@ class LatentReasoner(Qwen2ForCausalLM):
         position_ids = torch.arange(0, seq_length, dtype=torch.long, device=device)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
-        for _ in range(num_latent_steps):
-            outputs = super(LatentReasoner, self).forward(
-                inputs_embeds=inputs_embeds,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                output_hidden_states=True,
-                return_dict=True,
-            )
-            step = outputs.hidden_states[-1][:, -1:, :]
-            inputs_embeds = torch.cat([inputs_embeds, step], dim=1)
+        context_manager = torch.enable_grad() if track_grad else torch.no_grad()
+        with context_manager:
+            # Use KV cache properly and manage memory
+            past_key_values = None
             
-            # Update attention mask
-            new_mask = torch.ones(inputs_embeds.size(0), 1, device=device, dtype=attention_mask.dtype)
-            attention_mask = torch.cat([attention_mask, new_mask], dim=1)
-            
-            # Update position_ids for the new token position
-            new_positions = torch.full((batch_size, 1), position_ids.size(1), dtype=torch.long, device=device)
-            position_ids = torch.cat([position_ids, new_positions], dim=1)
+            for step_idx in range(num_latent_steps):
+                # MEMORY FIX: Only pass the last token for subsequent steps
+                if step_idx == 0:
+                    step_inputs_embeds = inputs_embeds
+                    step_attention_mask = attention_mask
+                    step_position_ids = position_ids
+                else:
+                    # Only process the last token
+                    step_inputs_embeds = inputs_embeds[:, -1:, :]
+                    step_attention_mask = attention_mask[:, -1:]
+                    step_position_ids = position_ids[:, -1:]
+                
+                outputs = super(LatentReasoner, self).forward(
+                    inputs_embeds=step_inputs_embeds,
+                    attention_mask=step_attention_mask,
+                    position_ids=step_position_ids,
+                    past_key_values=past_key_values,
+                    output_hidden_states=True,
+                    return_dict=True,
+                    use_cache=True
+                )
+                
+                # Update past_key_values for next iteration
+                past_key_values = outputs.past_key_values
+                
+                # Get the hidden state for the last token
+                step_hidden = outputs.hidden_states[-1][:, -1:, :]
+                
+                # Detach to prevent gradient accumulation across steps
+                if not track_grad:
+                    step_hidden = step_hidden.detach()
+                
+                # Append the new hidden state
+                inputs_embeds = torch.cat([inputs_embeds, step_hidden], dim=1)
+                
+                # Update attention mask and position_ids (unchanged)
+                new_mask = torch.ones(batch_size, 1, device=device, dtype=attention_mask.dtype)
+                attention_mask = torch.cat([attention_mask, new_mask], dim=1)
+                new_positions = torch.full((batch_size, 1), position_ids.size(1), dtype=torch.long, device=device)
+                position_ids = torch.cat([position_ids, new_positions], dim=1)
+                
+                # Clear intermediate variables
+                del outputs, step_hidden
+                if step_idx % 5 == 0:  # Periodic cleanup
+                    torch.cuda.empty_cache()
 
         # Add the end latent token <|end-latent|>
         end_latent_embeds = self.get_input_embeddings()(
@@ -116,7 +149,8 @@ class LatentReasoner(Qwen2ForCausalLM):
             inputs_embeds, attention_mask = self._prepare_latent_context(
                 num_latent_steps=num_latent_steps,
                 input_ids=input_ids,
-                attention_mask=attention_mask
+                attention_mask=attention_mask,
+                track_grad=False
             )
 
         if max_new_tokens > 0:
@@ -197,7 +231,8 @@ class LatentReasoner(Qwen2ForCausalLM):
         # Call the generate method to get the prompt + latent step embeddings
         prompt_completion_embeds, _ = self._prepare_latent_context(
             input_ids=prompt_ids.unsqueeze(0),
-            num_latent_steps=num_latent_steps
+            num_latent_steps=num_latent_steps,
+            track_grad=True
         )
         
         answer_embeds = self.get_input_embeddings()(answer_ids.unsqueeze(0))

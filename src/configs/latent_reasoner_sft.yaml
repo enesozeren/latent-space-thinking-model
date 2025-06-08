@@ -1,6 +1,6 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
+  base_model_name_or_path: "Qwen/Qwen2.5-3B"
 
 dataset:
   name: "openai/gsm8k" # Only works with this dataset
@@ -8,18 +8,18 @@ dataset:
 training:
   seed: 42
   max_num_latent_steps: 10
-  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
+  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_3b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 64
+  gradient_accumulation_steps: 32
   lr_scheduler_gamma: 0.9
   learning_rate: 5.0e-5
   lr_scheduler_step_size: 10
   num_train_epochs: 1
   logging_steps: 1
-  eval_steps: 128
+  eval_steps: 64
   weight_decay: 0.01
 
 wandb:
   project: latent_reasoner_sft
-  run_name: latent_reasoner_1p5b_sft
+  run_name: latent_reasoner_3b_sft
