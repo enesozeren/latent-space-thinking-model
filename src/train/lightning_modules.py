@@ -6,18 +6,19 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import lightning as L
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data_process.process_data import prepare_dataset_latent_sft
 from src.latent_reasoner.model import LatentReasoner
+from src.train.utils import is_rank_zero
 
 class ModelLightningModule(L.LightningModule):
     """PyTorch Lightning module for training a Language Model with SFT."""
     
-    def __init__(self, config: Dict[str, Any], tokenizer):
+    def __init__(self, config: Dict[str, Any]):
         super().__init__()
         self.config = config
-        self.tokenizer = tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(config["model"]["base_model_name_or_path"])
         self.save_hyperparameters(config)
         
         # Initialize model
@@ -227,15 +228,16 @@ class SFTDataModule(L.LightningDataModule):
             # For standard SFT, no latent steps are used
             max_num_latent_steps = None
 
-        data = prepare_dataset_latent_sft(config=self.config, 
+        data = prepare_dataset_latent_sft(dataset_name=self.config["dataset"]["name"], 
                                           tokenizer=self.tokenizer, 
+                                          seed=self.config["training"]["seed"],
                                           max_num_latent_steps=max_num_latent_steps)
         
         self.train_dataset = SFTDataset(data["train"])
         self.val_dataset = SFTDataset(data["validation"])
 
         # 3. Show one training example for sanity-check
-        if len(self.train_dataset):                      # just in case
+        if len(self.train_dataset) and is_rank_zero():
             sample = self.train_dataset[0]
 
             # decode the input text so it’s readable

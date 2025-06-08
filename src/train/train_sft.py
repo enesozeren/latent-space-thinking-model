@@ -1,15 +1,7 @@
-import yaml
 import argparse
 import os
 import logging
-import wandb
-from datetime import datetime
-from typing import Dict, Any, Optional
 
-import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizer, get_scheduler
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -21,6 +13,7 @@ from src.train.lightning_modules import (
     SFTDataModule, GenerateSamplesCallback, ModelLightningModule
 )
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def train_model(config_path: str) -> None:
     """Main training routine using PyTorch Lightning."""
@@ -34,8 +27,9 @@ def train_model(config_path: str) -> None:
         config_content = f.read()
     logging.info("Configuration file contents:\n%s", config_content)
     
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    # Create model
+    model = ModelLightningModule(cfg)
+    tokenizer = model.tokenizer  # Access tokenizer from the model
     
     # Setup wandb logger if configured
     logger = None
@@ -74,9 +68,6 @@ def train_model(config_path: str) -> None:
         is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
     )
     callbacks.append(sample_cb)
-
-    # Create model
-    model = ModelLightningModule(cfg, tokenizer)
     
     # Setup trainer
     trainer = L.Trainer(
@@ -107,11 +98,11 @@ def train_model(config_path: str) -> None:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a Latent Reasoner with SFT using PyTorch Lightning")
+    parser = argparse.ArgumentParser(description="SFT using PyTorch Lightning")
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/qwen2p5_3b_sft.yaml",
+        default="src/configs/latent_reasoner_sft.yaml",
         help="Path to the configuration YAML file",
     )
     return parser.parse_args()
