@@ -43,7 +43,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         temperature=config["grpo"]["temperature"],
         run_name=config.get("wandb", {}).get("run_name"),
         bf16=True,
-        dataloader_num_workers=0,
+        dataloader_num_workers=4,
         remove_unused_columns=False,
         # Other args
         gradient_checkpointing=True,
@@ -51,8 +51,6 @@ def setup_training_args(config: dict) -> GRPOConfig:
         ddp_find_unused_parameters=False,
         log_completions=True,
         use_vllm=False
-        # vllm_max_model_len=config["grpo"]["max_completion_length"]+1280,
-        # vllm_enable_prefix_caching=False
     )
 
 def train_model(config_path: str) -> None:

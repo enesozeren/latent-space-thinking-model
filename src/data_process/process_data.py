@@ -8,6 +8,24 @@ from prompts.prompts import (
 )
 import logging
 
+
+def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
+    """Convert an OpenR1-Math-220k row → GRPO expected format.
+    
+    Args:
+        example: An OpenR1-Math-220k example
+    """
+    question = example["problem"].strip()
+    answer = example["answer"].strip()
+    sys_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
+    prompt = sys_prompt + "\nUser:" + question + "\nAssistant:"
+
+    return {
+        "prompt": prompt,
+        "answer": answer,
+    }
+
+
 def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
     raw_ds = load_dataset(config["dataset"]["name"], "default")
@@ -35,21 +53,6 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
 
     return DatasetDict(processed)
 
-def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
-    """Convert an OpenR1-Math-220k row → GRPO expected format.
-    
-    Args:
-        example: An OpenR1-Math-220k example
-    """
-    question = example["problem"].strip()
-    answer = example["answer"].strip()
-    sys_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
-    prompt = sys_prompt + "\nUser:" + question + "\nAssistant:"
-
-    return {
-        "prompt": prompt,
-        "answer": answer,
-    }
 
 def _gsm8k_to_sft(example, tokenizer, max_num_latent_steps: Optional[int] = None) -> dict:
     """Process a single GSM8K example into SFT format and explicit <think>/<answer> sections.

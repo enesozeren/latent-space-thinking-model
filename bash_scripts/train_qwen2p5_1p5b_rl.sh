@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -p lrz-dgx-a100-80x8
-#SBATCH --gres=gpu:8                # 2 for vLLM, 6 for training
-#SBATCH --time=0-08:00:00
+#SBATCH --gres=gpu:4
+#SBATCH --time=0-04:00:00
 #SBATCH -o bash_outputs/output_qwen2p5_1p5b_rl_openr1data.log
 #SBATCH -e bash_outputs/error_qwen2p5_1p5b_rl_openr1data.log
 
@@ -11,11 +11,11 @@ export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config and number of processes for training
 CONFIG_PATH="src/configs/qwen2p5_1p5b_rl.yaml"
-NUM_PROCESSES=6
+NUM_PROCESSES=3
 
 # 1) Launch vLLM server
 echo "Starting vLLM server"
-CUDA_VISIBLE_DEVICES=0,1 trl vllm-serve --model Qwen/Qwen2.5-1.5B --tensor-parallel-size 2 &
+CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model Qwen/Qwen2.5-1.5B --tensor-parallel-size 2 &
 VLLM_PID=$!
 
 # Give the server some time to initialize (adjust if needed)

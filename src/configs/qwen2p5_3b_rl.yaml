@@ -1,5 +1,5 @@
 model:
-  model_name_or_path: "Qwen/Qwen2.5-3B"
+  base_model_name_or_path: "Qwen/Qwen2.5-3B"
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset

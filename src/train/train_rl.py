@@ -11,15 +11,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
 
-# --------------------------------------------------------------
-#  NOTE
-#  -----
-#  • Start VLLM server, e.g.:
-#      CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model google/gemma-3-1b-it
-#  • Launch with Hugging Face Accelerate, e.g.:
-#      CUDA_VISIBLE_DEVICES=1,2 accelerate launch src/train/train_rl.py
-# --------------------------------------------------------------
-
 def load_config(config_path):
     """Load and return the YAML configuration file."""
     with open(config_path, "r") as f:
@@ -58,9 +49,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         gradient_checkpointing_kwargs={"use_reentrant": False},
         ddp_find_unused_parameters=False,
         log_completions=True,
-        use_vllm=True,
-        vllm_max_model_len=config["grpo"]["max_completion_length"]+1280,
-        vllm_enable_prefix_caching=False
+        use_vllm=False
     )
 
 def train_model(config_path: str) -> None:
@@ -119,8 +108,8 @@ def train_model(config_path: str) -> None:
     args = setup_training_args(cfg)
 
     # Model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["model_name_or_path"])
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["model_name_or_path"])
+    model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
 
     trainer = GRPOTrainer(
         model=model,
