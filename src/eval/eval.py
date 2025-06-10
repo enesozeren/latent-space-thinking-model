@@ -14,6 +14,7 @@ import argparse
 import re, sys, time, random, logging
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
+import yaml
 
 import torch, numpy as np
 from transformers import (
@@ -31,8 +32,9 @@ from prompts.prompts import (
 )
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
+from src.latent_reasoner.model import LatentReasoner
 
-# logging setup ───────────────────────────────────────────────────────────────
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -41,9 +43,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helper / metric functions
-# ──────────────────────────────────────────────────────────────────────────────
 def answer_is_correct(pred: str, gt: str) -> bool:
     """Exact or symbolic match between *one* prediction and ground truth."""
     if pred.lower() == gt.lower():
@@ -103,30 +102,25 @@ def compute_pass_at_k(pred_lists: List[List[str]], gt: List[str], k: int) -> flo
     return sum(scores) / len(scores) if scores else 0.0
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Original utilities (unchanged except prompt formatter + generation)
-# ──────────────────────────────────────────────────────────────────────────────
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Evaluate a model on mathematical reasoning benchmarks"
     )
-    # (all original arguments stay untouched – no new args were added)
-    parser.add_argument("--model_name_or_path", type=str, required=True)
-    parser.add_argument("--dataset", type=str, default="openai/gsm8k",
-                        choices=["openai/gsm8k", "HuggingFaceH4/MATH-500"])
-    parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--top_p", type=float, default=0.95)
-    parser.add_argument("--max_length", type=int, default=2048)
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--split", type=str, default="test",
-                        choices=["test", "train"])
-    parser.add_argument("--num_examples", type=int, default=None)
-    parser.add_argument("--output_dir", type=str, default="outputs")
-    parser.add_argument("--wandb_project", type=str, default="latent_reasoner_eval")
-    parser.add_argument("--wandb_run_name", type=str, default=None)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--no_wandb", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--config", type=str, 
+                        default="src/configs/latent_reasoner_eval.yaml",
+                        help="Path to YAML configuration file")
+    args = parser.parse_args()
+    
+    # Load configuration from YAML file
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Convert config dict to argparse.Namespace for compatibility
+    config_ns = argparse.Namespace()
+    for key, value in config.items():
+        setattr(config_ns, key, value)
+    
+    return config_ns
 
 
 def format_prompt(question: str, dataset_name: str) -> str:
@@ -149,11 +143,10 @@ def extract_answer_from_response(response: str) -> str:
     return (box_match.group(1).strip() if box_match else "")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# New generation routine that returns *all* answers (requirement #4)
-# ──────────────────────────────────────────────────────────────────────────────
+# Generation routine that returns *all* answers 
 def generate_responses_multi(
-    model: PreTrainedModel,
+    args,
+    model,
     tokenizer: PreTrainedTokenizer,
     prompts: List[str],
     batch_size: int,
@@ -181,33 +174,51 @@ def generate_responses_multi(
         attention = inputs["attention_mask"].repeat_interleave(num_samples, dim=0)
 
         with torch.no_grad():
-            outputs = model.generate(
-                input_ids,
-                attention_mask=attention,
-                max_new_tokens=max_length,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=temperature > 0.0,
-                pad_token_id=tokenizer.pad_token_id,
-                num_return_sequences=1,         # already replicated manually
-            )
+            if args.is_latent_reasoner:
+                # Latent Reasoner model
+                outputs, _ = model.generate(
+                    input_ids,
+                    attention_mask=attention,
+                    max_new_tokens=max_length,
+                    temperature=temperature,
+                    top_p=top_p,
+                    do_sample=temperature > 0.0,
+                    pad_token_id=tokenizer.pad_token_id,
+                    num_return_sequences=1,         # already replicated manually
+                    num_latent_steps=args.num_latent_steps
+                )
+            else:
+                outputs = model.generate(
+                    input_ids,
+                    attention_mask=attention,
+                    max_new_tokens=max_length,
+                    temperature=temperature,
+                    top_p=top_p,
+                    do_sample=temperature > 0.0,
+                    pad_token_id=tokenizer.pad_token_id,
+                    num_return_sequences=1,         # already replicated manually
+                )
 
         # group back into per-question lists
         for i in range(len(batch_prompts)):
             start_idx = i * num_samples
             samples = outputs[start_idx : start_idx + num_samples]
-            decoded = [
-                tokenizer.decode(o[input_ids.shape[1]:], skip_special_tokens=True).strip()
-                for o in samples
-            ]
+            if args.is_latent_reasoner:
+                # Latent Reasoner model returns only the completion token ids
+                decoded = [
+                    tokenizer.decode(o, skip_special_tokens=True).strip()
+                    for o in samples
+                ]
+            else:
+                decoded = [
+                    tokenizer.decode(o[input_ids.shape[1]:], skip_special_tokens=True).strip()
+                    for o in samples
+                ]
             all_out.append(decoded)
 
     return all_out
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
 
@@ -223,11 +234,24 @@ def main():
     dataset = prepare_dataset(args.dataset, args.split, args.num_examples)
     logger.info(f"Evaluating {args.model_name_or_path} on {args.dataset}")
 
-    # model + tokenizer
-    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
-                                                 device_map="auto")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path,
-                                              padding_side="left")
+    # tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, padding_side="left")
+    # model
+    if args.is_latent_reasoner:
+        model = LatentReasoner.from_pretrained(args.model_name_or_path,
+                                               device_map="auto")
+        START = "<|start-latent|>"
+        LAT   = "<|latent|>"
+        END   = "<|end-latent|>"        
+        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
+        tokenizer.latent_token_id = tokenizer.convert_tokens_to_ids(LAT)
+        tokenizer.end_latent_token_id = tokenizer.convert_tokens_to_ids(END)
+        model.start_latent_token_id = tokenizer.start_latent_token_id
+        model.latent_token_id = tokenizer.latent_token_id
+        model.end_latent_token_id = tokenizer.end_latent_token_id        
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
+                                                     device_map="auto")
 
     # prompts
     prompts = [format_prompt(q, args.dataset) for q in dataset["questions"]]
@@ -235,7 +259,8 @@ def main():
     # ── generate answers ────────────────────────────────────────────────────
     start = time.time()
     responses_multi = generate_responses_multi(
-        model, tokenizer, prompts,
+        args=args,
+        model=model, tokenizer=tokenizer, prompts=prompts,
         batch_size=args.batch_size,
         max_length=args.max_length,
         temperature=args.temperature,

@@ -1,0 +1,23 @@
+# Model configuration
+model_name_or_path: "Qwen/Qwen2.5-1.5B"
+is_latent_reasoner: false  # Set to true for latent reasoner evaluation
+
+# Dataset configuration
+dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
+split: "test"            # choices: ["test", "train"]
+num_examples: null       # null means use all examples, or specify a number
+
+# Generation parameters
+temperature: 0.2
+top_p: 0.95
+max_length: 1024
+batch_size: 8
+
+# Output configuration
+output_dir: "outputs"
+wandb_project: "latent_reasoner_eval"
+wandb_run_name: null     # null means auto-generate, or specify a string
+no_wandb: false
+
+# Reproducibility
+seed: 42
