@@ -54,9 +54,13 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     return DatasetDict(processed)
 
 
-def _gsm8k_to_sft(example, tokenizer, max_num_latent_steps: Optional[int] = None) -> dict:
+def _gsm8k_to_sft(example, 
+                  tokenizer, 
+                  num_tokens_per_latent: Optional[int] = None, 
+                  add_num_latents_per_epoch: Optional[int] = None,
+                  current_epoch_num: int = 0) -> dict:
     """Process a single GSM8K example into SFT format and explicit <think>/<answer> sections.
-    If `max_num_latent_steps` is provided, it will be used to determine the number of latent steps.
+    If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
     """
     question = example["question"].strip()
@@ -73,33 +77,45 @@ def _gsm8k_to_sft(example, tokenizer, max_num_latent_steps: Optional[int] = None
     else:                                                 # fall-back (shouldn’t happen)
         cot_text, final_ans = processed, ""
 
-    think_block  = f"<think> {cot_text} </think>"
-    answer_block = f"<answer> {final_ans} </answer>"
-    assistant_response = think_block + "\n" + answer_block
-
     # build token sequence
     prefix_text   = "\nUser: " + question + "\nAssistant:"
     prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
-    answer_ids    = tokenizer(assistant_response, add_special_tokens=False).input_ids
-
+    think_ids = tokenizer(cot_text, add_special_tokens=False).input_ids
+    answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
-    # latent-token scaffold (only if max_num_latent_steps is provided)
-    if max_num_latent_steps is not None:
-        num_latent_steps = torch.randint(1, max_num_latent_steps + 1, (1,)).item()
+    start_think_id = tokenizer.start_think_token_id
+    end_think_id = tokenizer.end_think_token_id
+    start_answer_id = tokenizer.start_answer_token_id
+    end_answer_id = tokenizer.end_answer_token_id
+
+    # latent-token replacement logic
+    if num_tokens_per_latent and add_num_latents_per_epoch and current_epoch_num > 0:
+        num_latent_steps = min(add_num_latents_per_epoch * current_epoch_num, len(think_ids) // num_tokens_per_latent) 
         latent_ids = (
             [tokenizer.start_latent_token_id] +
             [tokenizer.latent_token_id] * num_latent_steps +
             [tokenizer.end_latent_token_id]
         )
-        # Add the latent scaffold to the input_ids
-        input_ids = prefix_ids + latent_ids + answer_ids + [eos_id]
-        # We still train on the whole think+answer block, so only prefix+latent are masked
-        labels = [-100] * (len(prefix_ids) + len(latent_ids)) + answer_ids + [eos_id]
+        # Reduce the tokens in the think block
+        think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
+        # Create the input_ids
+        input_ids = prefix_ids + latent_ids + \
+            [start_think_id] + think_ids + [end_think_id] + \
+            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+        # Mask prefix and latent tokens but not the think/answer sections
+        labels = [-100] * len(prefix_ids) + \
+            [-100] * len(latent_ids) + \
+            [start_think_id] + think_ids + [end_think_id] + \
+            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
     else:
-        # No latent tokens - just prefix + answer + eos
-        input_ids = prefix_ids + answer_ids + [eos_id]
-        # Only mask the prefix, train on the whole think+answer block
-        labels = [-100] * len(prefix_ids) + answer_ids + [eos_id]
+        # No latent tokens
+        input_ids = prefix_ids + \
+            [start_think_id] + think_ids + [end_think_id] + \
+            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+        # Only mask the prefix
+        labels = [-100] * len(prefix_ids) + \
+            [start_think_id] + think_ids + [end_think_id] + \
+            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
 
     attention_mask = [1] * len(input_ids)
 
@@ -110,7 +126,10 @@ def _gsm8k_to_sft(example, tokenizer, max_num_latent_steps: Optional[int] = None
     }
 
 
-def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int, max_num_latent_steps: Optional[int] = None) -> DatasetDict:
+def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int, 
+                               num_tokens_per_latent: Optional[int] = None, 
+                               add_num_latents_per_epoch: Optional[int] = None,
+                               current_epoch_num: int = 0) -> DatasetDict:
     """Convert GSM8K into latent-reasoning SFT format using the provided tokenizer."""
     # Load dataset
     raw_ds = load_dataset(dataset_name, "main", split="train")
@@ -122,24 +141,35 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int, max_num_laten
     processed = {
         "train": split_ds["train"].map(
             _gsm8k_to_sft,
-            fn_kwargs={"tokenizer": tokenizer, "max_num_latent_steps": max_num_latent_steps},
+            fn_kwargs={
+                "tokenizer": tokenizer, 
+                "num_tokens_per_latent": num_tokens_per_latent,
+                "add_num_latents_per_epoch": add_num_latents_per_epoch,
+                "current_epoch_num": current_epoch_num
+                },
             remove_columns=raw_ds.column_names,
         ),
         "validation": split_ds["test"].map(
             _gsm8k_to_sft,
-            fn_kwargs={"tokenizer": tokenizer, "max_num_latent_steps": max_num_latent_steps},
+            fn_kwargs={
+                "tokenizer": tokenizer, 
+                "num_tokens_per_latent": num_tokens_per_latent,
+                "add_num_latents_per_epoch": add_num_latents_per_epoch,
+                "current_epoch_num": current_epoch_num
+                },
             remove_columns=raw_ds.column_names,
         ),
     }
 
     # Log the dataset split sizes
     logger = logging.getLogger(__name__)
+    logger.info(f"Current epoch: {current_epoch_num}")    
     logger.info("GSM8K SFT Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
-    if max_num_latent_steps is not None:
-        logger.info(f"  Max number of latent steps: {max_num_latent_steps}")
+    if num_tokens_per_latent is not None:
+        logger.info(f"  Number of tokens per latent step: {num_tokens_per_latent}")
     else:
-        logger.info("  No latent tokens added (max_num_latent_steps is None)")
+        logger.info("  No latent tokens added (num_tokens_per_latent is None)")
 
     return DatasetDict(processed)

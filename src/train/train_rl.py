@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
+from src.train.utils import setup_special_tokens
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -110,6 +111,8 @@ def train_model(config_path: str) -> None:
     # Model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"])
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
+
+    model, tokenizer = setup_special_tokens(model, tokenizer, is_latent_reasoner=False)
 
     trainer = GRPOTrainer(
         model=model,

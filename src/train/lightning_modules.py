@@ -10,7 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data_process.process_data import prepare_dataset_latent_sft
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import is_rank_zero
+from src.train.utils import is_rank_zero, setup_special_tokens
 
 class ModelLightningModule(L.LightningModule):
     """PyTorch Lightning module for training a Language Model with SFT."""
@@ -25,63 +25,20 @@ class ModelLightningModule(L.LightningModule):
         if self.config["model"]["is_latent_reasoner"]:
             # For latent reasoner models, use the LatentReasoner class
             self.model = LatentReasoner.from_pretrained(config["model"]["base_model_name_or_path"])
-            # Setup special tokens
-            self._setup_special_tokens()
         else:
             self.model = AutoModelForCausalLM.from_pretrained(self.config["model"]["base_model_name_or_path"])
         
+        # Setup special tokens
+        self.model, self.tokenizer = setup_special_tokens(
+            model=self.model, 
+            tokenizer=self.tokenizer,
+            is_latent_reasoner=self.config["model"]["is_latent_reasoner"])
+
         # Store training config for optimizer setup
         self.learning_rate = float(self.config["training"]["learning_rate"])
         self.weight_decay = self.config["training"]["weight_decay"]
         self.lr_scheduler_step_size = self.config["training"]["lr_scheduler_step_size"]
         self.lr_scheduler_gamma = self.config["training"]["lr_scheduler_gamma"]
-
-    def _setup_special_tokens(self):
-        """Setup special tokens for latent reasoning."""
-        START = "<|start-latent|>"
-        LAT = "<|latent|>"
-        END = "<|end-latent|>"
-        new_specials = [START, LAT, END]
-
-        # Only add / resize / init if it is not the first training run
-        if not all(tok in self.tokenizer.get_vocab() for tok in new_specials):
-            # Add them to the tokenizer's vocab
-            self.tokenizer.add_tokens(new_specials)
-            self.model.resize_token_embeddings(len(self.tokenizer))  # expand model embeddings
-
-            # Save them as attributes for easy access
-            self.tokenizer.start_latent_token = START
-            self.tokenizer.latent_token = LAT
-            self.tokenizer.end_latent_token = END
-
-            self.tokenizer.start_latent_token_id = self.tokenizer.convert_tokens_to_ids(START)
-            self.tokenizer.latent_token_id = self.tokenizer.convert_tokens_to_ids(LAT)
-            self.tokenizer.end_latent_token_id = self.tokenizer.convert_tokens_to_ids(END)
-
-            # mirror them on your model
-            self.model.start_latent_token_id = self.tokenizer.start_latent_token_id
-            self.model.latent_token_id = self.tokenizer.latent_token_id
-            self.model.end_latent_token_id = self.tokenizer.end_latent_token_id
-            
-            # Get the embedding layer correctly
-            embedding_layer = self.model.get_input_embeddings()
-            
-            # Init the new latent tokens
-            vocab = self.tokenizer.get_vocab()
-            # Use torch.no_grad() to safely modify the weights
-            with torch.no_grad():
-                # copy existing tokens
-                embedding_layer.weight[self.model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
-                embedding_layer.weight[self.model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
-        else:
-            # tokens already there – still handy to have the ids on the objects
-            self.tokenizer.start_latent_token_id = self.tokenizer.convert_tokens_to_ids(START)
-            self.tokenizer.latent_token_id = self.tokenizer.convert_tokens_to_ids(LAT)
-            self.tokenizer.end_latent_token_id = self.tokenizer.convert_tokens_to_ids(END)
-            self.model.start_latent_token_id = self.tokenizer.start_latent_token_id
-            self.model.latent_token_id = self.tokenizer.latent_token_id
-            self.model.end_latent_token_id = self.tokenizer.end_latent_token_id
-            logging.info("Special tokens already present – skipping re-initialisation.")
     
     def forward(self, input_ids, attention_mask, labels=None):
         """Forward pass through the model."""
@@ -217,21 +174,29 @@ class SFTDataModule(L.LightningDataModule):
         self.batch_size = config["training"]["per_device_train_batch_size"]
         self.eval_batch_size = config["training"]["per_device_eval_batch_size"]
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
+        self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
         
-    def setup(self, stage: str):
+    def setup(self, stage: str, current_epoch_num: int = 0):
         """Setup datasets."""
+        # Update current epoch number
+        self.current_epoch_num = current_epoch_num
         # Prepare the dataset
         # If latent reasoning is enabled, prepare the dataset with latent tokens
         if self.is_latent_reasoner:
-            max_num_latent_steps = self.config["training"]["max_num_latent_steps"]
+            num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
+            add_num_latents_per_epoch = self.config["training"]["add_num_latents_per_epoch"]
+            assert num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
+            assert add_num_latents_per_epoch > 0, "add_num_latents_per_epoch must be greater than 0."
         else:
             # For standard SFT, no latent steps are used
-            max_num_latent_steps = None
+            num_tokens_per_latent = None
 
         data = prepare_dataset_latent_sft(dataset_name=self.config["dataset"]["name"], 
                                           tokenizer=self.tokenizer, 
                                           seed=self.config["training"]["seed"],
-                                          max_num_latent_steps=max_num_latent_steps)
+                                          num_tokens_per_latent=num_tokens_per_latent,
+                                          add_num_latents_per_epoch=add_num_latents_per_epoch,
+                                          current_epoch_num=current_epoch_num)
         
         self.train_dataset = SFTDataset(data["train"])
         self.val_dataset = SFTDataset(data["validation"])
@@ -247,12 +212,16 @@ class SFTDataModule(L.LightningDataModule):
                 clean_up_tokenization_spaces=True,
             )
 
-            print("\n=== SFT Data Check ===")
+            print(f"\n=== SFT Data Check (Epoch {current_epoch_num}) ===")
             print("Prompt:\n", decoded_prompt)
             # if you store the answer/label under another key, adjust here
             if "labels" in sample:
                 print("\nLabel IDs:", sample["labels"])
             print("====================================\n")        
+
+    def setup_for_epoch(self, current_epoch_num: int):
+        """Re-setup datasets for a new epoch with different preprocessing."""
+        self.setup("fit", current_epoch_num)
 
     def train_dataloader(self):
         """Return training dataloader."""
@@ -357,3 +326,32 @@ class GenerateSamplesCallback(L.Callback):
             step = trainer.global_step
             logging.info(f"[step {step}] [VAL Question {n}] ❓ {question}")
             logging.info(f"[step {step}] [VAL Answer   {n}] 🤖 {answer}")
+
+
+class DatasetRefreshCallback(L.Callback):
+    """
+    Callback to refresh the dataset preprocessing after each training epoch.
+    This allows for dynamic changes to the dataset based on the current epoch.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
+        """Called at the end of each training epoch to refresh the dataset."""
+        # Only refresh on the main process to avoid duplicate work
+        if trainer.global_rank != 0:
+            return
+        
+        # Get the current epoch (add 1 because we want the next epoch's preprocessing)
+        next_epoch_num = trainer.current_epoch + 1
+        
+        # Skip refresh if this is the last epoch
+        if next_epoch_num >= trainer.max_epochs:
+            return
+        
+        logging.info(f"Refreshing dataset preprocessing for epoch {next_epoch_num}")
+        
+        # Refresh the dataset preprocessing for the next epoch
+        trainer.datamodule.setup_for_epoch(next_epoch_num)
+        
+        logging.info(f"Dataset preprocessing refreshed for epoch {next_epoch_num}")

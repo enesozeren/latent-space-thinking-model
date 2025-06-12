@@ -1,6 +1,6 @@
 # Model configuration
 model_name_or_path: "Qwen/Qwen2.5-1.5B"
-is_latent_reasoner: false  # Set to true for latent reasoner evaluation
+is_latent_reasoner: False  # Set to true for latent reasoner evaluation
 
 # Dataset configuration
 dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]

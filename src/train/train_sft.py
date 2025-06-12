@@ -10,7 +10,7 @@ from src.train.utils import (
     load_config, setup_logging
 )
 from src.train.lightning_modules import (
-    SFTDataModule, GenerateSamplesCallback, ModelLightningModule
+    SFTDataModule, GenerateSamplesCallback, ModelLightningModule, DatasetRefreshCallback
 )
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -68,6 +68,10 @@ def train_model(config_path: str) -> None:
         is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
     )
     callbacks.append(sample_cb)
+    
+    # Dataset refresh callback for epoch-based preprocessing changes
+    dataset_refresh_cb = DatasetRefreshCallback()
+    callbacks.append(dataset_refresh_cb)
     
     # Setup trainer
     trainer = L.Trainer(

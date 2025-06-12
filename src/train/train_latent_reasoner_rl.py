@@ -8,9 +8,10 @@ import torch
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoTokenizer
 
-from src.train.rewards import format_reward, latent_format_reward, accuracy_reward
+from src.train.rewards import latent_format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset
 from src.latent_reasoner.model import LatentReasoner
+from src.train.utils import setup_special_tokens
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -114,51 +115,10 @@ def train_model(config_path: str) -> None:
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
 
-    # Define new tokens for latent steps
-    START = "<|start-latent|>"
-    LAT   = "<|latent|>"
-    END   = "<|end-latent|>"
-    new_specials = [START, LAT, END]
-
-    # Only add / resize / init if it is not the first training run
-    if not all(tok in tokenizer.get_vocab() for tok in new_specials):
-        # 3) Add them to the tokenizer’s vocab
-        tokenizer.add_tokens(new_specials)
-        model.resize_token_embeddings(len(tokenizer))  # expand model embeddings
-
-        # 4) “Save” them as attributes for easy access
-        tokenizer.start_latent_token   = START
-        tokenizer.latent_token         = LAT
-        tokenizer.end_latent_token     = END
-
-        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
-        tokenizer.latent_token_id       = tokenizer.convert_tokens_to_ids(LAT)
-        tokenizer.end_latent_token_id   = tokenizer.convert_tokens_to_ids(END)
-
-        # mirror them on your model
-        model.start_latent_token_id = tokenizer.start_latent_token_id
-        model.latent_token_id       = tokenizer.latent_token_id
-        model.end_latent_token_id   = tokenizer.end_latent_token_id
-        
-        # Get the embedding layer correctly
-        embedding_layer = model.get_input_embeddings()
-        
-        # Init the new latent tokens
-        vocab = tokenizer.get_vocab()
-        # Use torch.no_grad() to safely modify the weights
-        with torch.no_grad():
-            # copy existing tokens
-            embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
-            embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
-    else:
-        # tokens already there – still handy to have the ids on the objects
-        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
-        tokenizer.latent_token_id = tokenizer.convert_tokens_to_ids(LAT)
-        tokenizer.end_latent_token_id = tokenizer.convert_tokens_to_ids(END)
-        model.start_latent_token_id = tokenizer.start_latent_token_id
-        model.latent_token_id = tokenizer.latent_token_id
-        model.end_latent_token_id = tokenizer.end_latent_token_id
-        logging.info("Special tokens already present – skipping re-initialisation.")        
+    # Set up special tokens for think, answer and latent reasoning
+    model, tokenizer = setup_special_tokens(model=model, 
+                                            tokenizer=tokenizer, 
+                                            is_latent_reasoner=cfg["model"]["is_latent_reasoner"])
     
     # GRPO trainer
     trainer = GRPOTrainer(
