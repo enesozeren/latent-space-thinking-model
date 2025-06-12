@@ -30,7 +30,8 @@ def train_model(config_path: str) -> None:
     # Create model
     model = ModelLightningModule(cfg)
     tokenizer = model.tokenizer  # Access tokenizer from the model
-    
+    logging.info("Model created.")
+
     # Setup wandb logger if configured
     logger = None
     if "wandb" in cfg and cfg["wandb"].get("project"):
@@ -60,7 +61,8 @@ def train_model(config_path: str) -> None:
     
     # Create data module
     data_module = SFTDataModule(cfg, tokenizer)
-    
+    logging.info("Data created.")
+
     # Qualitative evaluation callback
     sample_cb = GenerateSamplesCallback(
         tokenizer=tokenizer,
@@ -92,6 +94,7 @@ def train_model(config_path: str) -> None:
     )
     
     # Start training
+    logging.info("SFT is starting.")
     trainer.fit(model, datamodule=data_module)
     
     # Save final model

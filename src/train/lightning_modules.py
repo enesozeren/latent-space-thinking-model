@@ -286,10 +286,10 @@ class GenerateSamplesCallback(L.Callback):
             full_ids = full_ids_tensor.tolist()
 
             # Cut just before the answer starts
-            if self.is_latent_reasoner:
+            try:
                 cut_idx = full_ids.index(self.tokenizer.start_latent_token_id) # first <|start-latent|>
-            else: 
-                return # don't generate samples for non-latent reasoner models since we can't detect the answer start for now
+            except ValueError:
+                cut_idx = full_ids.index(self.tokenizer.start_think_token_id) # first <think>
 
             prompt_ids = full_ids[:cut_idx]
 

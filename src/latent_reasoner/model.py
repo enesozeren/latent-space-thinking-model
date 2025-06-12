@@ -219,26 +219,30 @@ class LatentReasoner(Qwen2ForCausalLM):
         # Calculate the number of latent steps by counting the latent tokens
         num_latent_steps = (input_ids[0] == self.latent_token_id).sum().item()
 
-        # Find the start latent token index
-        start_latent_index = (input_ids[0] == self.start_latent_token_id).nonzero(as_tuple=True)[0]
-        end_latent_index = (input_ids[0] == self.end_latent_token_id).nonzero(as_tuple=True)[0]
+        if num_latent_steps > 0:
+            # Find the start latent token index
+            start_latent_index = (input_ids[0] == self.start_latent_token_id).nonzero(as_tuple=True)[0]
+            end_latent_index = (input_ids[0] == self.end_latent_token_id).nonzero(as_tuple=True)[0]
 
-        # Get the prompt_ids
-        prompt_ids = input_ids[0, :start_latent_index]
-        # Get the answer part after the latent tokens
-        answer_ids = input_ids[0, end_latent_index + 1:]
+            # Get the prompt_ids
+            prompt_ids = input_ids[0, :start_latent_index]
+            # Get the answer part after the latent tokens
+            answer_ids = input_ids[0, end_latent_index + 1:]
 
-        # Call the generate method to get the prompt + latent step embeddings
-        prompt_completion_embeds, _ = self._prepare_latent_context(
-            input_ids=prompt_ids.unsqueeze(0),
-            num_latent_steps=num_latent_steps,
-            track_grad=True
-        )
-        
-        answer_embeds = self.get_input_embeddings()(answer_ids.unsqueeze(0))
+            # Call the generate method to get the prompt + latent step embeddings
+            prompt_completion_embeds, _ = self._prepare_latent_context(
+                input_ids=prompt_ids.unsqueeze(0),
+                num_latent_steps=num_latent_steps,
+                track_grad=True
+            )
+            
+            answer_embeds = self.get_input_embeddings()(answer_ids.unsqueeze(0))
 
-        # Concatenate the prompt + latent + answer embeddings
-        inputs_embeds = torch.cat([prompt_completion_embeds, answer_embeds], dim=1)
+            # Concatenate the prompt + latent + answer embeddings
+            inputs_embeds = torch.cat([prompt_completion_embeds, answer_embeds], dim=1)
+        else:
+            inputs_embeds = self.get_input_embeddings()(input_ids)
+
         # Call the parent forward method
         outputs = super().forward(
             inputs_embeds=inputs_embeds,
