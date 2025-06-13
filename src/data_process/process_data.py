@@ -57,8 +57,8 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
 def _gsm8k_to_sft(example, 
                   tokenizer, 
                   num_tokens_per_latent: Optional[int] = None, 
-                  add_num_latents_per_epoch: Optional[int] = None,
-                  current_epoch_num: int = 0) -> dict:
+                  add_num_latents_per_update: Optional[int] = None,
+                  update_cycle: int = 0) -> dict:
     """Process a single GSM8K example into SFT format and explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
@@ -89,8 +89,8 @@ def _gsm8k_to_sft(example,
     end_answer_id = tokenizer.end_answer_token_id
 
     # latent-token replacement logic
-    if num_tokens_per_latent and add_num_latents_per_epoch and current_epoch_num > 0:
-        num_latent_steps = min(add_num_latents_per_epoch * current_epoch_num, len(think_ids) // num_tokens_per_latent) 
+    if num_tokens_per_latent and add_num_latents_per_update and update_cycle > 0:
+        num_latent_steps = min(add_num_latents_per_update * update_cycle, len(think_ids) // num_tokens_per_latent) 
         latent_ids = (
             [tokenizer.start_latent_token_id] +
             [tokenizer.latent_token_id] * num_latent_steps +
@@ -128,8 +128,8 @@ def _gsm8k_to_sft(example,
 
 def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int, 
                                num_tokens_per_latent: Optional[int] = None, 
-                               add_num_latents_per_epoch: Optional[int] = None,
-                               current_epoch_num: int = 0) -> DatasetDict:
+                               add_num_latents_per_update: Optional[int] = None,
+                               update_cycle: int = 0) -> DatasetDict:
     """Convert GSM8K into latent-reasoning SFT format using the provided tokenizer."""
     # Load dataset
     raw_ds = load_dataset(dataset_name, "main", split="train")
@@ -144,8 +144,8 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "num_tokens_per_latent": num_tokens_per_latent,
-                "add_num_latents_per_epoch": add_num_latents_per_epoch,
-                "current_epoch_num": current_epoch_num
+                "add_num_latents_per_update": add_num_latents_per_update,
+                "update_cycle": update_cycle
                 },
             remove_columns=raw_ds.column_names,
         ),
@@ -154,8 +154,8 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "num_tokens_per_latent": num_tokens_per_latent,
-                "add_num_latents_per_epoch": add_num_latents_per_epoch,
-                "current_epoch_num": current_epoch_num
+                "add_num_latents_per_update": add_num_latents_per_update,
+                "update_cycle": update_cycle
                 },
             remove_columns=raw_ds.column_names,
         ),
@@ -163,7 +163,7 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
 
     # Log the dataset split sizes
     logger = logging.getLogger(__name__)
-    logger.info(f"Current epoch: {current_epoch_num}")    
+    logger.info(f"Update Cycle: {update_cycle}")    
     logger.info("GSM8K SFT Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")

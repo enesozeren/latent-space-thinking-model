@@ -71,9 +71,13 @@ def train_model(config_path: str) -> None:
     )
     callbacks.append(sample_cb)
     
-    # Dataset refresh callback for epoch-based preprocessing changes
-    dataset_refresh_cb = DatasetRefreshCallback()
-    callbacks.append(dataset_refresh_cb)
+    # If using latent reasoning, add dataset refresh callback
+    if cfg["model"]["is_latent_reasoner"]:
+        logging.info("Latent Reasoning enabled, adding dataset refresh callback.")
+        # Dataset refresh callback for step-based preprocessing changes
+        dataset_refresh_every_n_steps = cfg["training"]["dataset_refresh_every_n_steps"]
+        dataset_refresh_cb = DatasetRefreshCallback(dataset_refresh_every_n_steps=dataset_refresh_every_n_steps)
+        callbacks.append(dataset_refresh_cb)
     
     # Setup trainer
     trainer = L.Trainer(

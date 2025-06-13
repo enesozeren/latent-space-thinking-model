@@ -176,17 +176,17 @@ class SFTDataModule(L.LightningDataModule):
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
         self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
         
-    def setup(self, stage: str, current_epoch_num: int = 0):
+    def setup(self, update_cycle: int = 0):
         """Setup datasets."""
         # Update current epoch number
-        self.current_epoch_num = current_epoch_num
+        self.update_cycle = update_cycle
         # Prepare the dataset
         # If latent reasoning is enabled, prepare the dataset with latent tokens
         if self.is_latent_reasoner:
             num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
-            add_num_latents_per_epoch = self.config["training"]["add_num_latents_per_epoch"]
+            add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
             assert num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
-            assert add_num_latents_per_epoch > 0, "add_num_latents_per_epoch must be greater than 0."
+            assert add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
         else:
             # For standard SFT, no latent steps are used
             num_tokens_per_latent = None
@@ -195,8 +195,8 @@ class SFTDataModule(L.LightningDataModule):
                                           tokenizer=self.tokenizer, 
                                           seed=self.config["training"]["seed"],
                                           num_tokens_per_latent=num_tokens_per_latent,
-                                          add_num_latents_per_epoch=add_num_latents_per_epoch,
-                                          current_epoch_num=current_epoch_num)
+                                          add_num_latents_per_update=add_num_latents_per_update,
+                                          update_cycle=update_cycle)
         
         self.train_dataset = SFTDataset(data["train"])
         self.val_dataset = SFTDataset(data["validation"])
@@ -212,16 +212,16 @@ class SFTDataModule(L.LightningDataModule):
                 clean_up_tokenization_spaces=True,
             )
 
-            print(f"\n=== SFT Data Check (Epoch {current_epoch_num}) ===")
+            print(f"\n=== SFT Data Check (Update Cycle: {update_cycle}) ===")
             print("Prompt:\n", decoded_prompt)
             # if you store the answer/label under another key, adjust here
             if "labels" in sample:
                 print("\nLabel IDs:", sample["labels"])
             print("====================================\n")        
 
-    def setup_for_epoch(self, current_epoch_num: int):
-        """Re-setup datasets for a new epoch with different preprocessing."""
-        self.setup("fit", current_epoch_num)
+    def update_dataset(self, update_cycle: int):
+        """Re-setup datasets for a new update_cycle with different preprocessing."""
+        self.setup(update_cycle)
 
     def train_dataloader(self):
         """Return training dataloader."""
@@ -330,43 +330,40 @@ class GenerateSamplesCallback(L.Callback):
 
 class DatasetRefreshCallback(L.Callback):
     """
-    Callback to refresh the dataset preprocessing after each training epoch.
-    This allows for dynamic changes to the dataset based on the current epoch.
+    Used only for SFT latent reasoning models.
+    Callback to refresh the dataset preprocessing after every X training steps.
+    This allows for dynamic changes to the dataset based on the current step.
     """
-    def __init__(self):
+    def __init__(self, dataset_refresh_every_n_steps: int):
         super().__init__()
+        self.dataset_refresh_every_n_steps = dataset_refresh_every_n_steps
+        self.last_refresh_step = 0
 
-    def on_train_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
-        """Called at the end of each training epoch to refresh the dataset."""
+    def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
+        """Called at the end of each training batch to check if refresh is needed."""
         # Only refresh on the main process to avoid duplicate work
         if trainer.global_rank != 0:
             return
         
-        # Get the current epoch
-        current_epoch_num = trainer.current_epoch
+        current_step = trainer.global_step
         
-        # Log current epoch latent metrics to wandb if this is a latent reasoner
-        if hasattr(trainer.datamodule, 'is_latent_reasoner') and trainer.datamodule.is_latent_reasoner:
-            if hasattr(trainer.datamodule, 'config') and 'training' in trainer.datamodule.config:
-                add_num_latents_per_epoch = trainer.datamodule.config["training"].get("add_num_latents_per_epoch", 0)
-                total_latents = current_epoch_num * add_num_latents_per_epoch
-                
-                # Log to wandb through the Lightning module
-                pl_module.log('epoch/total_latents', total_latents, on_epoch=True, on_step=False)
-                
-                logging.info(f"Epoch {current_epoch_num}: total_latents = {total_latents} "
-                           f"(current_epoch * add_num_latents_per_epoch = {current_epoch_num} * {add_num_latents_per_epoch})")
-        
-        # Get the next epoch (add 1 because we want the next epoch's preprocessing)
-        next_epoch_num = current_epoch_num + 1
-        
-        # Skip refresh if this is the last epoch
-        if next_epoch_num >= trainer.max_epochs:
-            return
-        
-        logging.info(f"Refreshing dataset preprocessing for epoch {next_epoch_num}")
-        
-        # Refresh the dataset preprocessing for the next epoch
-        trainer.datamodule.setup_for_epoch(next_epoch_num)
-        
-        logging.info(f"Dataset preprocessing refreshed for epoch {next_epoch_num}")
+        # Check if it's time to refresh the dataset
+        if (current_step > 0 and 
+            current_step % self.dataset_refresh_every_n_steps == 0 and 
+            current_step > self.last_refresh_step):
+            # Calculate current latent count based on steps
+            add_num_latents_per_update = trainer.datamodule.config["training"]["add_num_latents_per_update"]
+            # Calculate latents based on refresh cycles
+            update_cycle = current_step // self.dataset_refresh_every_n_steps
+            total_latents = update_cycle * add_num_latents_per_update
+            
+            # Log to wandb through the Lightning module
+            pl_module.log('step/total_latents', total_latents, on_epoch=False, on_step=True)
+
+            # Refresh the dataset preprocessing
+            trainer.datamodule.update_dataset(update_cycle=update_cycle)
+            
+            # Update last refresh step
+            self.last_refresh_step = current_step
+            
+            logging.info(f"Dataset preprocessing refreshed at step {current_step} (update cycle: {update_cycle})")
