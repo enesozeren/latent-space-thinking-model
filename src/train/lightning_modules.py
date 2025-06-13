@@ -342,8 +342,23 @@ class DatasetRefreshCallback(L.Callback):
         if trainer.global_rank != 0:
             return
         
-        # Get the current epoch (add 1 because we want the next epoch's preprocessing)
-        next_epoch_num = trainer.current_epoch + 1
+        # Get the current epoch
+        current_epoch_num = trainer.current_epoch
+        
+        # Log current epoch latent metrics to wandb if this is a latent reasoner
+        if hasattr(trainer.datamodule, 'is_latent_reasoner') and trainer.datamodule.is_latent_reasoner:
+            if hasattr(trainer.datamodule, 'config') and 'training' in trainer.datamodule.config:
+                add_num_latents_per_epoch = trainer.datamodule.config["training"].get("add_num_latents_per_epoch", 0)
+                total_latents = current_epoch_num * add_num_latents_per_epoch
+                
+                # Log to wandb through the Lightning module
+                pl_module.log('epoch/total_latents', total_latents, on_epoch=True, on_step=False)
+                
+                logging.info(f"Epoch {current_epoch_num}: total_latents = {total_latents} "
+                           f"(current_epoch * add_num_latents_per_epoch = {current_epoch_num} * {add_num_latents_per_epoch})")
+        
+        # Get the next epoch (add 1 because we want the next epoch's preprocessing)
+        next_epoch_num = current_epoch_num + 1
         
         # Skip refresh if this is the last epoch
         if next_epoch_num >= trainer.max_epochs:
