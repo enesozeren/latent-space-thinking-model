@@ -175,28 +175,27 @@ class SFTDataModule(L.LightningDataModule):
         self.eval_batch_size = config["training"]["per_device_eval_batch_size"]
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
         self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
-        
+        # If latent reasoning is enabled, prepare the dataset with latent tokens
+        if self.is_latent_reasoner:
+            self.num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
+            self.add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
+            assert self.num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
+            assert self.add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
+        else:
+            # For standard SFT, no latent steps are used
+            self.num_tokens_per_latent = None        
+
     def setup(self, stage: str, update_cycle: int = 0):
         """Setup datasets."""
         # Update current epoch number
         self.update_cycle = update_cycle
         # Prepare the dataset
-        # If latent reasoning is enabled, prepare the dataset with latent tokens
-        if self.is_latent_reasoner:
-            num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
-            add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
-            assert num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
-            assert add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
-        else:
-            # For standard SFT, no latent steps are used
-            num_tokens_per_latent = None
-
         data = prepare_dataset_latent_sft(dataset_name=self.config["dataset"]["name"], 
                                           num_examples=self.config["dataset"]["num_examples"],
                                           tokenizer=self.tokenizer, 
                                           seed=self.config["training"]["seed"],
-                                          num_tokens_per_latent=num_tokens_per_latent,
-                                          add_num_latents_per_update=add_num_latents_per_update,
+                                          num_tokens_per_latent=self.num_tokens_per_latent,
+                                          add_num_latents_per_update=self.add_num_latents_per_update,
                                           update_cycle=update_cycle)
         
         self.train_dataset = SFTDataset(data["train"])
@@ -268,6 +267,12 @@ class GenerateSamplesCallback(L.Callback):
         if trainer.global_rank != 0:
             return
         
+        current_step = trainer.global_step
+        add_num_latents_per_update = trainer.datamodule.config["training"]["add_num_latents_per_update"]
+        dataset_refresh_every_n_steps = trainer.datamodule.config["training"]["dataset_refresh_every_n_steps"]
+        update_cycle = current_step // dataset_refresh_every_n_steps
+        total_latents = update_cycle * add_num_latents_per_update
+        
         pl_module.eval()
 
         # Grab val_dataset directly from the datamodule
@@ -301,8 +306,8 @@ class GenerateSamplesCallback(L.Callback):
             generated_ids = pl_module.model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                num_latent_steps=10,
-                max_new_tokens=256,
+                num_latent_steps=total_latents,
+                max_new_tokens=512,
                 do_sample=False
             )
 

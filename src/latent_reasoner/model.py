@@ -33,6 +33,13 @@ class LatentReasoner(Qwen2ForCausalLM):
         3. Append <|end-latent|>
         Returns: inputs_embeds, attention_mask  (same shapes)
         """
+
+        if num_latent_steps == 0:
+            inputs_embeds = self.get_input_embeddings()(input_ids)
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids)
+            return inputs_embeds, attention_mask
+
         batch_size = input_ids.size(0)
         device = input_ids.device
 
@@ -175,22 +182,26 @@ class LatentReasoner(Qwen2ForCausalLM):
         
         del inputs_embeds
         
-        # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
-        batch_size = input_ids.size(0)
-        device = input_ids.device
-        dtype = input_ids.dtype
-        
-        # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
-        latent_ids = torch.ones((batch_size, num_latent_steps+2),  # +2 for start and end latent tokens
-                                dtype=dtype, device=device) * self.latent_token_id
-        latent_ids[:, 0] = self.start_latent_token_id
-        latent_ids[:, -1] = self.end_latent_token_id
-        
-        # Concatenate with completion language tokens
-        if max_new_tokens > 0:
-            completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
+        if num_latent_steps > 0:
+            # Prepend latent tokens (<|start-latent|>, <|latent|>s, <|end-latent|>)
+            batch_size = input_ids.size(0)
+            device = input_ids.device
+            dtype = input_ids.dtype
+            
+            # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
+            latent_ids = torch.ones((batch_size, num_latent_steps+2),  # +2 for start and end latent tokens
+                                    dtype=dtype, device=device) * self.latent_token_id
+            latent_ids[:, 0] = self.start_latent_token_id
+            latent_ids[:, -1] = self.end_latent_token_id
+            
+            # Concatenate with completion language tokens
+            if max_new_tokens > 0:
+                completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
+            else:
+                completion_token_ids = latent_ids
         else:
-            completion_token_ids = latent_ids
+            # No latent reasoning → return only the language tokens
+            completion_token_ids = completion_language_token_ids            
 
         # Final cleanup
         torch.cuda.empty_cache()
