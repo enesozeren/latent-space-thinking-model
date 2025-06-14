@@ -120,3 +120,8 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
             logging.info("Special tokens already present – skipping re-initialisation.")
 
     return model, tokenizer
+
+
+def is_rank_zero() -> bool:
+    """True only for the main training process (global rank 0)."""
+    return int(os.environ.get("RANK", 0)) == 0

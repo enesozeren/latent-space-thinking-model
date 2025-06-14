@@ -7,7 +7,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
 from src.train.utils import (
-    load_config, setup_logging
+    load_config, setup_logging, is_rank_zero
 )
 from src.train.lightning_modules import (
     SFTDataModule, GenerateSamplesCallback, ModelLightningModule, DatasetRefreshCallback
@@ -92,9 +92,9 @@ def train_model(config_path: str) -> None:
         logger=logger,
         callbacks=callbacks,
         default_root_dir=output_dir,
-        enable_checkpointing=True,
-        enable_progress_bar=True,
-        enable_model_summary=True,
+        enable_checkpointing=is_rank_zero(),     # no duplicate ckpt dirs
+        enable_progress_bar=is_rank_zero(),      # cleaner stdout
+        enable_model_summary=is_rank_zero(),     # summary once
     )
     
     # Start training

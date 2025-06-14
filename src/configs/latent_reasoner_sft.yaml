@@ -4,23 +4,24 @@ model:
   is_latent_reasoner: True
 
 dataset:
-  name: "openai/gsm8k" # Only works with this dataset
+  name: "open-r1/OpenR1-Math-220k"
+  num_examples: 50000
 
 training:
   seed: 42
-  dataset_refresh_every_n_steps: 20 # Refresh dataset for every n steps for incremental latent thinking
+  dataset_refresh_every_n_steps: 50 # Refresh dataset for every n steps for incremental latent thinking
   add_num_latents_per_update: 4
   num_tokens_per_latent: 4
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 32
+  gradient_accumulation_steps: 64
   lr_scheduler_gamma: 0.9
-  learning_rate: 1.0e-5
-  lr_scheduler_step_size: 20
-  num_train_epochs: 10
+  learning_rate: 5.0e-5
+  lr_scheduler_step_size: 50
+  num_train_epochs: 2
   logging_steps: 1
-  eval_steps: 128
+  eval_steps: 256
   weight_decay: 0.01
 
 wandb:

@@ -54,28 +54,20 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     return DatasetDict(processed)
 
 
-def _gsm8k_to_sft(example, 
-                  tokenizer, 
-                  num_tokens_per_latent: Optional[int] = None, 
-                  add_num_latents_per_update: Optional[int] = None,
-                  update_cycle: int = 0) -> dict:
-    """Process a single GSM8K example into SFT format and explicit <think>/<answer> sections.
+def _openr1math_to_sft(
+    example, 
+    tokenizer, 
+    num_tokens_per_latent: Optional[int] = None, 
+    add_num_latents_per_update: Optional[int] = None,
+    update_cycle: int = 0) -> dict:
+    """Process a single open-r1/OpenR1-Math-220k example into SFT format with explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
     """
-    question = example["question"].strip()
-
-    # Convert trailing “####  <value>” to “\boxed{<value>}”
-    raw_answer = example.get("answer", "").strip()
-    processed = re.sub(r"(?:\n)?####\s*(.+)$", r"\\boxed{\1}", raw_answer)
-
-    # The first \boxed{ … } is taken as the final answer
-    m = re.search(r"\\boxed\{[^}]+\}", processed)
-    if m:
-        cot_text   = processed[:m.start()].rstrip()       # chain-of-thought
-        final_ans  = m.group()                            # boxed answer
-    else:                                                 # fall-back (shouldn’t happen)
-        cot_text, final_ans = processed, ""
+    question = example["problem"].strip()
+    cot_text = example.get("solution", "").strip()
+    answer_text = example.get("answer", "").strip()
+    final_ans = f"\\boxed{{{answer_text}}}"
 
     # build token sequence
     prefix_text   = "\nUser: " + question + "\nAssistant:"
@@ -126,13 +118,14 @@ def _gsm8k_to_sft(example,
     }
 
 
-def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int, 
+def prepare_dataset_latent_sft(dataset_name, num_examples, tokenizer, seed: int, 
                                num_tokens_per_latent: Optional[int] = None, 
                                add_num_latents_per_update: Optional[int] = None,
                                update_cycle: int = 0) -> DatasetDict:
-    """Convert GSM8K into latent-reasoning SFT format using the provided tokenizer."""
+    """Convert open-r1/OpenR1-Math-220k into latent-reasoning SFT format using the provided tokenizer."""
     # Load dataset
-    raw_ds = load_dataset(dataset_name, "main", split="train")
+    raw_ds = load_dataset(dataset_name, "extended", split="train")
+    raw_ds = raw_ds.select(range(num_examples))
 
     # Create train/validation splits
     split_ds = raw_ds.train_test_split(test_size=0.1, seed=seed)
@@ -140,7 +133,7 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
     # Process both splits with map, passing tokenizer & num_latent_steps via fn_kwargs
     processed = {
         "train": split_ds["train"].map(
-            _gsm8k_to_sft,
+            _openr1math_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "num_tokens_per_latent": num_tokens_per_latent,
@@ -150,7 +143,7 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
             remove_columns=raw_ds.column_names,
         ),
         "validation": split_ds["test"].map(
-            _gsm8k_to_sft,
+            _openr1math_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "num_tokens_per_latent": num_tokens_per_latent,
@@ -164,7 +157,7 @@ def prepare_dataset_latent_sft(dataset_name, tokenizer, seed: int,
     # Log the dataset split sizes
     logger = logging.getLogger(__name__)
     logger.info(f"Update Cycle: {update_cycle}")    
-    logger.info("GSM8K SFT Dataset split sizes:")
+    logger.info("SFT Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
     if num_tokens_per_latent is not None:

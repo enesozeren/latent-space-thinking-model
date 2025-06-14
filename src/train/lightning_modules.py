@@ -176,7 +176,7 @@ class SFTDataModule(L.LightningDataModule):
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
         self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
         
-    def setup(self, update_cycle: int = 0):
+    def setup(self, stage: str, update_cycle: int = 0):
         """Setup datasets."""
         # Update current epoch number
         self.update_cycle = update_cycle
@@ -192,6 +192,7 @@ class SFTDataModule(L.LightningDataModule):
             num_tokens_per_latent = None
 
         data = prepare_dataset_latent_sft(dataset_name=self.config["dataset"]["name"], 
+                                          num_examples=self.config["dataset"]["num_examples"],
                                           tokenizer=self.tokenizer, 
                                           seed=self.config["training"]["seed"],
                                           num_tokens_per_latent=num_tokens_per_latent,
@@ -221,7 +222,7 @@ class SFTDataModule(L.LightningDataModule):
 
     def update_dataset(self, update_cycle: int):
         """Re-setup datasets for a new update_cycle with different preprocessing."""
-        self.setup(update_cycle)
+        self.setup("fit", update_cycle)
 
     def train_dataloader(self):
         """Return training dataloader."""
@@ -339,7 +340,7 @@ class DatasetRefreshCallback(L.Callback):
         self.dataset_refresh_every_n_steps = dataset_refresh_every_n_steps
         self.last_refresh_step = 0
 
-    def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule):
+    def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, *args, **kwargs):
         """Called at the end of each training batch to check if refresh is needed."""
         # Only refresh on the main process to avoid duplicate work
         if trainer.global_rank != 0:
