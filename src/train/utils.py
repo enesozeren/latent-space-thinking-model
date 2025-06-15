@@ -40,10 +40,6 @@ def setup_logging(config: dict):
     return output_dir
 
 
-def is_rank_zero():
-    return not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
-
-
 def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
     """Setup special tokens for think, answer and latent reasoning."""
     START_THINK = "<think>"
@@ -121,7 +117,5 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
 
     return model, tokenizer
 
-
-def is_rank_zero() -> bool:
-    """True only for the main training process (global rank 0)."""
-    return int(os.environ.get("RANK", 0)) == 0
+def is_rank_zero():
+    return not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0

@@ -345,6 +345,54 @@ class DatasetRefreshCallback(L.Callback):
         self.dataset_refresh_every_n_steps = dataset_refresh_every_n_steps
         self.last_refresh_step = 0
 
+    def _reset_optimizer_state(self, trainer: L.Trainer):
+        """
+        Zero-out the internal state of every optimizer attached to the trainer.
+        Keeps learning-rate, parameter groups, and scheduler bindings intact.
+        """
+        for opt in trainer.optimizers:
+            opt.state.clear()  # ← momentum, exp. moving avgs, etc.
+        logging.info("Optimizer state has been reset after dataset refresh.")
+
+    def _reset_lr_scheduler_state(self, trainer: L.Trainer, pl_module: L.LightningModule):
+        """
+        Reset the learning rate scheduler state and restore initial learning rate.
+        This ensures consistent learning dynamics after dataset refresh.
+        """
+        # Get the initial learning rate from the module config
+        initial_lr = pl_module.learning_rate
+        
+        # Reset learning rate in all parameter groups
+        for opt in trainer.optimizers:
+            for param_group in opt.param_groups:
+                param_group['lr'] = initial_lr
+        
+        # Reset scheduler state if schedulers exist
+        if hasattr(trainer, 'lr_scheduler_configs') and trainer.lr_scheduler_configs:
+            for lr_scheduler_config in trainer.lr_scheduler_configs:
+                scheduler = lr_scheduler_config.scheduler
+                
+                # Reset scheduler state
+                if hasattr(scheduler, 'last_epoch'):
+                    scheduler.last_epoch = -1
+                
+                # For StepLR scheduler, reset the step count
+                if hasattr(scheduler, '_step_count'):
+                    scheduler._step_count = 0
+                
+                # Reset any internal state
+                if hasattr(scheduler, 'state_dict'):
+                    # Create a fresh scheduler with same parameters to get clean state
+                    if isinstance(scheduler, torch.optim.lr_scheduler.StepLR):
+                        fresh_scheduler = torch.optim.lr_scheduler.StepLR(
+                            trainer.optimizers[0],  # assuming single optimizer
+                            step_size=pl_module.lr_scheduler_step_size,
+                            gamma=pl_module.lr_scheduler_gamma
+                        )
+                        scheduler.load_state_dict(fresh_scheduler.state_dict())
+        
+        logging.info(f"Learning rate scheduler state reset. Initial LR restored: {initial_lr}")
+
     def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, *args, **kwargs):
         """Called at the end of each training batch to check if refresh is needed."""
         # Only refresh on the main process to avoid duplicate work
@@ -369,6 +417,11 @@ class DatasetRefreshCallback(L.Callback):
             # Refresh the dataset preprocessing
             trainer.datamodule.update_dataset(update_cycle=update_cycle)
             
+            # Reset the optimizer
+            self._reset_optimizer_state(trainer)
+            # Reset the learning rate scheduler state and restore initial LR
+            self._reset_lr_scheduler_state(trainer, pl_module)
+
             # Update last refresh step
             self.last_refresh_step = current_step
             

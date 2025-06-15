@@ -5,23 +5,23 @@ model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 50000
+  num_examples: 100000
 
 training:
   seed: 42
-  dataset_refresh_every_n_steps: 50 # Refresh dataset for every n steps for incremental latent thinking
-  add_num_latents_per_update: 2
-  num_tokens_per_latent: 4
+  dataset_refresh_every_n_steps: 200 # Refresh dataset for every n steps for incremental latent thinking
+  add_num_latents_per_update: 1
+  num_tokens_per_latent: 5
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 128
-  lr_scheduler_gamma: 0.95
-  learning_rate: 5.0e-5
-  lr_scheduler_step_size: 100
-  num_train_epochs: 4
+  gradient_accumulation_steps: 32
+  lr_scheduler_gamma: 0.9
+  learning_rate: 1.0e-4
+  lr_scheduler_step_size: 50
+  num_train_epochs: 15
   logging_steps: 1
-  eval_steps: 512
+  eval_steps: 1024
   weight_decay: 0.01
 
 wandb:

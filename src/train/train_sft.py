@@ -20,7 +20,9 @@ def train_model(config_path: str) -> None:
     cfg = load_config(config_path)
     
     # Setup logging and output directory
-    output_dir = setup_logging(cfg)
+    if is_rank_zero():
+        print("Rank is 0. Creating the output directory.")
+        output_dir = setup_logging(cfg)
     
     # Log the configuration file
     with open(config_path, "r") as f:
@@ -49,9 +51,10 @@ def train_model(config_path: str) -> None:
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(output_dir, "checkpoints"),
         filename="checkpoint-{epoch:02d}-{step}",
+        monitor="val_loss",
+        mode="min",
         save_top_k=1, # Save top model based on validation loss
-        every_n_train_steps=None,
-        save_on_train_epoch_end=True # Only save at the end of each epoch
+        every_n_train_steps=16
     )
     callbacks.append(checkpoint_callback)
     
@@ -102,10 +105,11 @@ def train_model(config_path: str) -> None:
     trainer.fit(model, datamodule=data_module)
     
     # Save final model
-    final_model_path = os.path.join(output_dir, "final_model")
-    model.model.save_pretrained(final_model_path)
-    tokenizer.save_pretrained(final_model_path)
-    logging.info(f"Final model saved to {final_model_path}")
+    if is_rank_zero():
+        final_model_path = os.path.join(output_dir, "final_model")
+        model.model.save_pretrained(final_model_path)
+        tokenizer.save_pretrained(final_model_path)
+        logging.info(f"Final model saved to {final_model_path}")
 
 
 def parse_args():
