@@ -118,4 +118,13 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
     return model, tokenizer
 
 def is_rank_zero():
-    return not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    # fall back to environment variable when distributed is not yet initialised
+    rank_env = os.environ.get("RANK")
+    if rank_env is not None:
+        try:
+            return int(rank_env) == 0
+        except ValueError:
+            pass
+    return True

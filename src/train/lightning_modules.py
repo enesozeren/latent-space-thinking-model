@@ -1,11 +1,13 @@
 import logging
 from typing import Dict, Any
+import os
 
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data_process.process_data import prepare_dataset_latent_sft
@@ -109,6 +111,13 @@ class ModelLightningModule(L.LightningModule):
                 "frequency": 1,
             },
         }
+
+    # def on_train_epoch_start(self):
+    #     """Calculate initial validation loss on first epoch."""
+    #     if self.current_epoch == 0 and self.trainer.val_dataloaders:
+    #         val_results = self.trainer.validate(self, self.trainer.val_dataloaders, verbose=False)
+    #         initial_val_loss = val_results[0]['val_loss']
+    #         print('Validation Loss: ', initial_val_loss)
 
 
 class SFTDataset(Dataset):
@@ -251,11 +260,14 @@ class GenerateSamplesCallback(L.Callback):
     After each validation epoch, generate answers for the *first* `num_samples`
     examples in the validation set and log them.
     """
-    def __init__(self, tokenizer, num_samples: int = 2, is_latent_reasoner: bool = False):
+    def __init__(self, tokenizer, num_samples: int, 
+                 is_latent_reasoner: bool,
+                 add_num_latents_per_update: int):
         super().__init__()
         self.tokenizer = tokenizer
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
+        self.add_num_latents_per_update = add_num_latents_per_update
 
     @torch.inference_mode()
     def on_validation_epoch_end(
@@ -267,11 +279,8 @@ class GenerateSamplesCallback(L.Callback):
         if trainer.global_rank != 0:
             return
         
-        current_step = trainer.global_step
-        add_num_latents_per_update = trainer.datamodule.config["training"]["add_num_latents_per_update"]
-        dataset_refresh_every_n_steps = trainer.datamodule.config["training"]["dataset_refresh_every_n_steps"]
-        update_cycle = current_step // dataset_refresh_every_n_steps
-        total_latents = update_cycle * add_num_latents_per_update
+        current_epoch = trainer.current_epoch
+        total_latents = current_epoch * self.add_num_latents_per_update
         
         pl_module.eval()
 
@@ -336,93 +345,118 @@ class GenerateSamplesCallback(L.Callback):
 
 class DatasetRefreshCallback(L.Callback):
     """
-    Used only for SFT latent reasoning models.
-    Callback to refresh the dataset preprocessing after every X training steps.
-    This allows for dynamic changes to the dataset based on the current step.
+    For latent-reasoner SFT training:
+    – refresh the datamodule’s preprocessing every epoch
+    – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
-    def __init__(self, dataset_refresh_every_n_steps: int):
+    def __init__(self, add_num_latents_per_update: int, num_tokens_per_latent: int):
         super().__init__()
-        self.dataset_refresh_every_n_steps = dataset_refresh_every_n_steps
-        self.last_refresh_step = 0
+        self.add_num_latents_per_update = add_num_latents_per_update
+        self.num_tokens_per_latent = num_tokens_per_latent
 
-    def _reset_optimizer_state(self, trainer: L.Trainer):
+    #  Helpers                                                              #
+    @staticmethod
+    def _reset_optimizer_state(optimizer: torch.optim.Optimizer) -> None:
         """
-        Zero-out the internal state of every optimizer attached to the trainer.
-        Keeps learning-rate, parameter groups, and scheduler bindings intact.
+        Wipes *all* per-parameter buffers (momentum, exp-avg, 8-bit stats, …)
+        but keeps parameter groups & hyper-parameters intact.
+        This is safe for Adam/AdamW, Lion, LAMB, SGD-momentum, fused & 8-bit
+        variants – they lazily recreate state at the next step.
         """
+        optimizer.state.clear()
+
+        # Re-initialise if the optimiser exposes a helper (e.g. bitsandbytes)
+        if hasattr(optimizer, "_optimizer__initialize"):
+            optimizer._optimizer__initialize()
+
+    @staticmethod
+    def _reset_scheduler_state(scheduler: torch.optim.lr_scheduler._LRScheduler) -> None:
+        """
+        Generic reset that works for StepLR, CosineAnnealingLR, OneCycleLR,
+        ReduceLROnPlateau, etc.
+        """
+        # Restore each param-group’s LR to the original base LR
+        for group, base_lr in zip(scheduler.optimizer.param_groups, scheduler.base_lrs):
+            group["lr"] = base_lr
+
+        # Lightning always calls scheduler.step() after optimiser.step().
+        # Setting last_epoch = -1 and _step_count = 0 guarantees that the next
+        # call behaves as if it’s the very first scheduler step.
+        scheduler.last_epoch = -1
+        if hasattr(scheduler, "_step_count"):
+            scheduler._step_count = 0
+
+        # Special-case attributes for plateau schedulers
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler.best = float("inf")
+            scheduler.num_bad_epochs = 0
+            scheduler.cooldown_counter = 0
+
+    #  Main hook
+    def on_train_epoch_end(
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule,
+        *args, **kwargs,
+    ):
+        # 1. Work out how many latents we should have after *next* epoch
+        next_epoch = trainer.current_epoch + 1
+        total_latents = next_epoch * self.add_num_latents_per_update
+        pl_module.log(
+            "step/total_latents",
+            total_latents,
+            on_epoch=True,
+            on_step=False,
+        )
+
+        # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
+        trainer.datamodule.update_dataset(update_cycle=next_epoch)
+
+        # 3. Reset every optimiser
         for opt in trainer.optimizers:
-            opt.state.clear()  # ← momentum, exp. moving avgs, etc.
-        logging.info("Optimizer state has been reset after dataset refresh.")
+            self._reset_optimizer_state(opt)
 
-    def _reset_lr_scheduler_state(self, trainer: L.Trainer, pl_module: L.LightningModule):
-        """
-        Reset the learning rate scheduler state and restore initial learning rate.
-        This ensures consistent learning dynamics after dataset refresh.
-        """
-        # Get the initial learning rate from the module config
-        initial_lr = pl_module.learning_rate
-        
-        # Reset learning rate in all parameter groups
-        for opt in trainer.optimizers:
-            for param_group in opt.param_groups:
-                param_group['lr'] = initial_lr
-        
-        # Reset scheduler state if schedulers exist
-        if hasattr(trainer, 'lr_scheduler_configs') and trainer.lr_scheduler_configs:
-            for lr_scheduler_config in trainer.lr_scheduler_configs:
-                scheduler = lr_scheduler_config.scheduler
-                
-                # Reset scheduler state
-                if hasattr(scheduler, 'last_epoch'):
-                    scheduler.last_epoch = -1
-                
-                # For StepLR scheduler, reset the step count
-                if hasattr(scheduler, '_step_count'):
-                    scheduler._step_count = 0
-                
-                # Reset any internal state
-                if hasattr(scheduler, 'state_dict'):
-                    # Create a fresh scheduler with same parameters to get clean state
-                    if isinstance(scheduler, torch.optim.lr_scheduler.StepLR):
-                        fresh_scheduler = torch.optim.lr_scheduler.StepLR(
-                            trainer.optimizers[0],  # assuming single optimizer
-                            step_size=pl_module.lr_scheduler_step_size,
-                            gamma=pl_module.lr_scheduler_gamma
-                        )
-                        scheduler.load_state_dict(fresh_scheduler.state_dict())
-        
-        logging.info(f"Learning rate scheduler state reset. Initial LR restored: {initial_lr}")
+        # 4. Reset every LR scheduler
+        sched_cfgs = getattr(trainer, "lr_schedulers",
+                             getattr(trainer, "lr_scheduler_configs", []))
+        for cfg in sched_cfgs:
+            # cfg is a dict in new PL, an AttrDict-like object in old PL
+            scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
+            self._reset_scheduler_state(scheduler)
 
-    def on_train_batch_end(self, trainer: L.Trainer, pl_module: L.LightningModule, *args, **kwargs):
-        """Called at the end of each training batch to check if refresh is needed."""
-        # Only refresh on the main process to avoid duplicate work
-        if trainer.global_rank != 0:
-            return
-        
-        current_step = trainer.global_step
-        
-        # Check if it's time to refresh the dataset
-        if (current_step > 0 and 
-            current_step % self.dataset_refresh_every_n_steps == 0 and 
-            current_step > self.last_refresh_step):
-            # Calculate current latent count based on steps
-            add_num_latents_per_update = trainer.datamodule.config["training"]["add_num_latents_per_update"]
-            # Calculate latents based on refresh cycles
-            update_cycle = current_step // self.dataset_refresh_every_n_steps
-            total_latents = update_cycle * add_num_latents_per_update
-            
-            # Log to wandb through the Lightning module
-            pl_module.log('step/total_latents', total_latents, on_epoch=False, on_step=True)
+        logging.info(f"Dataset + optimiser/scheduler reset (cycle {next_epoch}).")
 
-            # Refresh the dataset preprocessing
-            trainer.datamodule.update_dataset(update_cycle=update_cycle)
-            
-            # Reset the optimizer
-            self._reset_optimizer_state(trainer)
-            # Reset the learning rate scheduler state and restore initial LR
-            self._reset_lr_scheduler_state(trainer, pl_module)
+        # 5. Make sure every rank arrives here before training resumes
+        trainer.strategy.barrier()
 
-            # Update last refresh step
-            self.last_refresh_step = current_step
-            
-            logging.info(f"Dataset preprocessing refreshed at step {current_step} (update cycle: {update_cycle})")
+
+class HFModelCheckpoint(ModelCheckpoint):
+    """
+    Saves `pl_module.model.save_pretrained(...)` + `tokenizer.save_pretrained(...)`
+    at the same cadence ModelCheckpoint would normally save a .ckpt file.
+    """
+    def __init__(self, output_dir: str, **kwargs):
+        # we don't need monitor/mode because we aren't ranking anything
+        super().__init__(
+            dirpath=os.path.join(output_dir, "hf_checkpoints"),
+            filename="epoch{epoch:02d}",   # epoch00/, epoch01/, …
+            monitor=None,
+            save_top_k=-1,                 # keep every epoch
+            every_n_epochs=1,
+            **kwargs
+        )
+        self.output_dir = self.dirpath
+
+    # ☑️ This is where ModelCheckpoint normally serialises a *.ckpt.
+    #    Replace that logic with HF's `save_pretrained`.
+    def _save_checkpoint(self, trainer, filepath: str) -> None:
+        epoch_idx   = trainer.current_epoch
+        save_dir    = os.path.join(self.output_dir, f"epoch{epoch_idx:02d}")
+        os.makedirs(save_dir, exist_ok=True)
+
+        pl_module   = trainer.lightning_module
+        pl_module.model.save_pretrained(save_dir)
+        pl_module.tokenizer.save_pretrained(save_dir)
+
+        # ModelCheckpoint tracks its last path; set it so resuming works.
+        self.last_model_path = save_dir                   # <-- important

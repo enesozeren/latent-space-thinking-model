@@ -10,7 +10,8 @@ from src.train.utils import (
     load_config, setup_logging, is_rank_zero
 )
 from src.train.lightning_modules import (
-    SFTDataModule, GenerateSamplesCallback, ModelLightningModule, DatasetRefreshCallback
+    SFTDataModule, GenerateSamplesCallback, ModelLightningModule, 
+    DatasetRefreshCallback, HFModelCheckpoint
 )
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -20,9 +21,7 @@ def train_model(config_path: str) -> None:
     cfg = load_config(config_path)
     
     # Setup logging and output directory
-    if is_rank_zero():
-        print("Rank is 0. Creating the output directory.")
-        output_dir = setup_logging(cfg)
+    output_dir = setup_logging(cfg)
     
     # Log the configuration file
     with open(config_path, "r") as f:
@@ -48,14 +47,7 @@ def train_model(config_path: str) -> None:
     callbacks = []
     
     # Model checkpoint callback
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(output_dir, "checkpoints"),
-        filename="checkpoint-{epoch:02d}-{step}",
-        monitor="val_loss",
-        mode="min",
-        save_top_k=1, # Save top model based on validation loss
-        every_n_train_steps=16
-    )
+    checkpoint_callback = HFModelCheckpoint(output_dir)
     callbacks.append(checkpoint_callback)
     
     # Learning rate monitor
@@ -70,18 +62,21 @@ def train_model(config_path: str) -> None:
     sample_cb = GenerateSamplesCallback(
         tokenizer=tokenizer,
         num_samples=2,
-        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+        is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
+        add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"]
     )
     callbacks.append(sample_cb)
     
-    # If using latent reasoning, add dataset refresh callback
+    # If using latent reasoning, add dataset refresh callback to introduce latent steps incrementally
     if cfg["model"]["is_latent_reasoner"]:
         logging.info("Latent Reasoning enabled, adding dataset refresh callback.")
-        # Dataset refresh callback for step-based preprocessing changes
-        dataset_refresh_every_n_steps = cfg["training"]["dataset_refresh_every_n_steps"]
-        dataset_refresh_cb = DatasetRefreshCallback(dataset_refresh_every_n_steps=dataset_refresh_every_n_steps)
+        # Dataset refresh callback
+        dataset_refresh_cb = DatasetRefreshCallback(
+            add_num_latents_per_update = cfg["training"]["add_num_latents_per_update"],
+            num_tokens_per_latent = cfg["training"]["num_tokens_per_latent"]
+        )
         callbacks.append(dataset_refresh_cb)
-    
+
     # Setup trainer
     trainer = L.Trainer(
         max_epochs=cfg["training"]["num_train_epochs"],
