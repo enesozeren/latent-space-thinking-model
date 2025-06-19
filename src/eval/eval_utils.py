@@ -27,13 +27,14 @@ def get_format_info(response, tokenizer):
     
     return has_boxed, fully_formatted, token_length
 
-def save_results(args, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer):
+def save_results(cfg, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer):
     """Save evaluation results to output directory."""
     # Create output directory if it doesn't exist
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_name = Path(args.model_name_or_path).name
+    model_name = Path(cfg["model"]["base_model_name_or_path"]).name
+    dataset_name = cfg["dataset"]["dataset"]
     # Include dataset name in output folder
-    output_dir = Path(args.output_dir) / f"{model_name}_{args.dataset}_{timestamp}"
+    output_dir = Path(cfg["logs"]["output_dir"]) / f"{model_name}_{dataset_name}_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create examples list for both local save and wandb
@@ -74,7 +75,7 @@ def save_results(args, dataset, first_responses, first_extracted_answers_in_resp
     # Save config
     config_path = output_dir / "config.json"
     with open(config_path, "w") as f:
-        json.dump(vars(args), f, indent=2)
+        json.dump(cfg, f, indent=2)
 
     # Save metrics
     metrics_path = output_dir / "metrics.json"
@@ -82,13 +83,13 @@ def save_results(args, dataset, first_responses, first_extracted_answers_in_resp
         json.dump(metrics, f, indent=2)
 
     # Log to W&B if not disabled
-    if not args.no_wandb:
+    if not cfg["logs"]["no_wandb"]:
         # Initialize wandb if not already running
-        run_name = args.wandb_run_name or f"{model_name}_{args.dataset}_eval"
+        run_name = cfg["logs"]["wandb_run_name"] or f"{model_name}_{dataset_name}_eval"
         run = wandb.init(
-            project=args.wandb_project, 
+            project=cfg["logs"]["wandb_project"], 
             name=run_name, 
-            config=vars(args),
+            config=cfg,
             job_type="evaluation", 
             id=timestamp
         )

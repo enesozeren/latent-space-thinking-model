@@ -199,7 +199,7 @@ def generate_responses_multi(
 
 
 def eval_model(config_path):
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cfg = load_config(config_path)
     seed = cfg["seed"]
     torch.manual_seed(seed); random.seed(seed); np.random.seed(seed)
@@ -216,18 +216,19 @@ def eval_model(config_path):
     # Initialize model
     if cfg["model"]["is_latent_reasoner"]:
         # For latent reasoner models, use the LatentReasoner class
-        model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
+        model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"]).to(device)
     else:
-        model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"])
+        model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"]).to(device)
 
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"],
                                               padding_side="left")
     # Setup special tokens
-    model, tokenizer = setup_special_tokens(
-        model=model, 
-        tokenizer=tokenizer,
-        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
-    )
+    if cfg["model"]["is_sft_version"]:
+        model, tokenizer = setup_special_tokens(
+            model=model, 
+            tokenizer=tokenizer,
+            is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+        )
 
     # prompts
     prompts = [format_prompt(q, cfg["dataset"]["dataset"]) for q in dataset["questions"]]

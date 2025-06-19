@@ -1,6 +1,7 @@
 # Model configuration
 model:
   model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250615_182941/hf_checkpoints/epoch00"
+  is_sft_version: True
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
   num_latent_steps: 0  # Number of latent steps
 
