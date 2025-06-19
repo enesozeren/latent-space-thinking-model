@@ -1,7 +1,8 @@
 #!/bin/bash
-#SBATCH -p lrz-hgx-h100-94x4
+#SBATCH -p mcml-hgx-h100-94x4
+#SBATCH -q mcml
 #SBATCH --gres=gpu:4
-#SBATCH --time=0-08:00:00
+#SBATCH --time=0-02:00:00
 #SBATCH -o bash_outputs/output_qwen_1p5b_sft.log
 #SBATCH -e bash_outputs/error_qwen_1p5b_sft.log
 
@@ -13,5 +14,5 @@ export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/other-repos/latent-reaso
 CONFIG_PATH="src/configs/qwen2p5_1p5b_sft.yaml"
 
 # Launch Lightning training
-echo "Starting SFT for Latent Reasoner with PyTorch Lightning"
+echo "Starting SFT with PyTorch Lightning"
 python src/train/train_sft.py --config $CONFIG_PATH

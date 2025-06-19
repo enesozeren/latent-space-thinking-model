@@ -68,14 +68,14 @@ def train_model(config_path: str) -> None:
         )
         callbacks.append(dataset_refresh_cb)
 
-        # Qualitative evaluation callback
-        sample_cb = GenerateSamplesCallback(
-            tokenizer=tokenizer,
-            num_samples=2,
-            is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
-            add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"]
-        )
-        callbacks.append(sample_cb)        
+    # Qualitative evaluation callback
+    sample_cb = GenerateSamplesCallback(
+        tokenizer=tokenizer,
+        num_samples=2,
+        is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
+        add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"] if cfg["model"]["is_latent_reasoner"] else None,
+    )
+    callbacks.append(sample_cb)        
     
     # Setup trainer
     trainer = L.Trainer(
@@ -110,7 +110,7 @@ def train_model(config_path: str) -> None:
 def parse_args():
     parser = argparse.ArgumentParser(description="SFT using PyTorch Lightning")
     parser.add_argument(
-        "--config",
+        "--config_path",
         type=str,
         default="src/configs/latent_reasoner_sft.yaml",
         help="Path to the configuration YAML file",
@@ -120,4 +120,4 @@ def parse_args():
 
 if __name__ == "__main__":
     cli_args = parse_args()
-    train_model(cli_args.config)
+    train_model(cli_args.config_path)

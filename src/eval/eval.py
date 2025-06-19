@@ -33,7 +33,7 @@ from prompts.prompts import (
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
 from src.latent_reasoner.model import LatentReasoner
-
+from src.train.utils import load_config, setup_special_tokens
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,27 +102,6 @@ def compute_pass_at_k(pred_lists: List[List[str]], gt: List[str], k: int) -> flo
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Evaluate a model on mathematical reasoning benchmarks"
-    )
-    parser.add_argument("--config", type=str, 
-                        default="src/configs/latent_reasoner_eval.yaml",
-                        help="Path to YAML configuration file")
-    args = parser.parse_args()
-    
-    # Load configuration from YAML file
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Convert config dict to argparse.Namespace for compatibility
-    config_ns = argparse.Namespace()
-    for key, value in config.items():
-        setattr(config_ns, key, value)
-    
-    return config_ns
-
-
 def format_prompt(question: str, dataset_name: str) -> str:
     """Return a single string prompt (few-shot) for a question."""
     if dataset_name == "openai/gsm8k":
@@ -145,7 +124,7 @@ def extract_answer_from_response(response: str) -> str:
 
 # Generation routine that returns *all* answers 
 def generate_responses_multi(
-    args,
+    cfg,
     model,
     tokenizer: PreTrainedTokenizer,
     prompts: List[str],
@@ -174,7 +153,7 @@ def generate_responses_multi(
         attention = inputs["attention_mask"].repeat_interleave(num_samples, dim=0)
 
         with torch.no_grad():
-            if args.is_latent_reasoner:
+            if cfg["model"]["is_latent_reasoner"]:
                 # Latent Reasoner model
                 outputs, _ = model.generate(
                     input_ids,
@@ -185,7 +164,7 @@ def generate_responses_multi(
                     do_sample=temperature > 0.0,
                     pad_token_id=tokenizer.pad_token_id,
                     num_return_sequences=1,         # already replicated manually
-                    num_latent_steps=args.num_latent_steps
+                    num_latent_steps=cfg["model"]["num_latent_steps"]
                 )
             else:
                 outputs = model.generate(
@@ -203,7 +182,7 @@ def generate_responses_multi(
         for i in range(len(batch_prompts)):
             start_idx = i * num_samples
             samples = outputs[start_idx : start_idx + num_samples]
-            if args.is_latent_reasoner:
+            if cfg["model"]["is_latent_reasoner"]:
                 # Latent Reasoner model returns only the completion token ids
                 decoded = [
                     tokenizer.decode(o, skip_special_tokens=True).strip()
@@ -219,52 +198,51 @@ def generate_responses_multi(
     return all_out
 
 
-def main():
-    args = parse_args()
+def eval_model(config_path):
 
-    # reproducibility
-    torch.manual_seed(args.seed); random.seed(args.seed); np.random.seed(args.seed)
-    set_seed(args.seed)
+    cfg = load_config(config_path)
+    seed = cfg["seed"]
+    torch.manual_seed(seed); random.seed(seed); np.random.seed(seed)
+    set_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
+        torch.cuda.manual_seed_all(seed)
 
     # dataset
-    dataset = prepare_dataset(args.dataset, args.split, args.num_examples)
-    logger.info(f"Evaluating {args.model_name_or_path} on {args.dataset}")
+    dataset = prepare_dataset(cfg["dataset"]["dataset"], cfg["dataset"]["split"], cfg["dataset"]["num_examples"])
+    logger.info(f"Evaluating {cfg["model"]["base_model_name_or_path"]} on {cfg["dataset"]["dataset"]}")
 
-    # tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, padding_side="left")
-    # model
-    if args.is_latent_reasoner:
-        model = LatentReasoner.from_pretrained(args.model_name_or_path,
-                                               device_map="auto")
-        START = "<|start-latent|>"
-        LAT   = "<|latent|>"
-        END   = "<|end-latent|>"        
-        tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START)
-        tokenizer.latent_token_id = tokenizer.convert_tokens_to_ids(LAT)
-        tokenizer.end_latent_token_id = tokenizer.convert_tokens_to_ids(END)
-        model.start_latent_token_id = tokenizer.start_latent_token_id
-        model.latent_token_id = tokenizer.latent_token_id
-        model.end_latent_token_id = tokenizer.end_latent_token_id        
+    # Initialize model
+    if cfg["model"]["is_latent_reasoner"]:
+        # For latent reasoner models, use the LatentReasoner class
+        model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path,
-                                                     device_map="auto")
+        model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"])
+
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"],
+                                              padding_side="left")
+    # Setup special tokens
+    model, tokenizer = setup_special_tokens(
+        model=model, 
+        tokenizer=tokenizer,
+        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+    )
 
     # prompts
-    prompts = [format_prompt(q, args.dataset) for q in dataset["questions"]]
+    prompts = [format_prompt(q, cfg["dataset"]["dataset"]) for q in dataset["questions"]]
 
     # ── generate answers ────────────────────────────────────────────────────
     start = time.time()
     responses_multi = generate_responses_multi(
-        args=args,
-        model=model, tokenizer=tokenizer, prompts=prompts,
-        batch_size=args.batch_size,
-        max_length=args.max_length,
-        temperature=args.temperature,
-        top_p=args.top_p,
+        cfg=cfg,
+        model=model, 
+        tokenizer=tokenizer, 
+        prompts=prompts,
+        batch_size=cfg["generation"]["batch_size"],
+        max_length=cfg["generation"]["max_length"],
+        temperature=cfg["generation"]["temperature"],
+        top_p=cfg["generation"]["top_p"],
         num_samples=NUM_SAMPLES,
     )
     generation_time = time.time() - start
@@ -297,8 +275,20 @@ def main():
 
     logger.info(f"Evaluation results:\n{metrics}")
 
-    save_results(args, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer)
+    save_results(cfg, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evalulation of a model")
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default="src/configs/latent_reasoner_eval.yaml",
+        help="Path to the configuration YAML file",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    cli_args = parse_args()
+    eval_model(cli_args.config_path)

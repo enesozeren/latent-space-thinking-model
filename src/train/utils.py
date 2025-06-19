@@ -62,6 +62,7 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
         tokenizer.end_think_token_id = tokenizer.convert_tokens_to_ids(END_THINK)
         tokenizer.start_answer_token_id = tokenizer.convert_tokens_to_ids(START_ANSWER)
         tokenizer.end_answer_token_id = tokenizer.convert_tokens_to_ids(END_ANSWER)
+        logging.info("Think/answer special tokens initialised.")
     else:
         # tokens already there – still handy to have the ids on the objects
         tokenizer.start_think_token_id = tokenizer.convert_tokens_to_ids(START_THINK)
@@ -105,6 +106,8 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
                 # copy existing tokens
                 embedding_layer.weight[model.start_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
                 embedding_layer.weight[model.end_latent_token_id] = embedding_layer.weight[vocab["."]].clone()
+
+            logging.info("Latent special tokens initialised.")
         else:
             # tokens already there – still handy to have the ids on the objects
             tokenizer.start_latent_token_id = tokenizer.convert_tokens_to_ids(START_LATENT)

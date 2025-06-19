@@ -281,7 +281,8 @@ class GenerateSamplesCallback(L.Callback):
             return
         
         current_epoch = trainer.current_epoch
-        total_latents = current_epoch * self.add_num_latents_per_update
+        if self.is_latent_reasoner:
+            total_latents = current_epoch * self.add_num_latents_per_update
         
         pl_module.eval()
 
@@ -302,9 +303,9 @@ class GenerateSamplesCallback(L.Callback):
             full_ids = full_ids_tensor.tolist()
 
             # Cut just before the answer starts
-            try:
+            if self.is_latent_reasoner and total_latents > 0:
                 cut_idx = full_ids.index(self.tokenizer.start_latent_token_id) # first <|start-latent|>
-            except ValueError:
+            else:
                 cut_idx = full_ids.index(self.tokenizer.start_think_token_id) # first <think>
 
             prompt_ids = full_ids[:cut_idx]
@@ -313,13 +314,23 @@ class GenerateSamplesCallback(L.Callback):
             input_ids = torch.tensor(prompt_ids, dtype=torch.long, device=pl_module.device).unsqueeze(0)
             attention_mask = torch.ones_like(input_ids)
 
-            generated_ids = pl_module.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                num_latent_steps=total_latents,
-                max_new_tokens=512,
-                do_sample=False
-            )
+            if self.is_latent_reasoner:
+                generated_ids = pl_module.model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    num_latent_steps=total_latents,
+                    max_new_tokens=512,
+                    do_sample=False
+                )
+            else:
+                generated_ids = pl_module.model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=512,
+                    do_sample=False
+                )
+                # remove the question from the generated ids
+                generated_ids = generated_ids[:, cut_idx:]
 
             question = self.tokenizer.decode(
                 input_ids[0].tolist(),
@@ -448,8 +459,8 @@ class HFModelCheckpoint(ModelCheckpoint):
         )
         self.output_dir = self.dirpath
 
-    # ☑️ This is where ModelCheckpoint normally serialises a *.ckpt.
-    #    Replace that logic with HF's `save_pretrained`.
+    # This is where ModelCheckpoint normally serialises a *.ckpt.
+    # Replace that logic with HF's `save_pretrained`.
     def _save_checkpoint(self, trainer, filepath: str) -> None:
         epoch_idx   = trainer.current_epoch
         save_dir    = os.path.join(self.output_dir, f"epoch{epoch_idx:02d}")
@@ -458,6 +469,6 @@ class HFModelCheckpoint(ModelCheckpoint):
         pl_module   = trainer.lightning_module
         pl_module.model.save_pretrained(save_dir)
         pl_module.tokenizer.save_pretrained(save_dir)
-
+        logging.info(f"Epoch {epoch_idx} checkpoint saved to {save_dir}")
         # ModelCheckpoint tracks its last path; set it so resuming works.
         self.last_model_path = save_dir                   # <-- important
