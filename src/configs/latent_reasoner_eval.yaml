@@ -1,10 +1,10 @@
 # Model configuration
-model_name_or_path: "outputs/latent_reasoner_sft_rl/checkpoint-200"
+model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250615_182941/hf_checkpoints/epoch00"
 is_latent_reasoner: True  # Set to true for latent reasoner evaluation
-num_latent_steps: 10  # Number of latent steps
+num_latent_steps: 0  # Number of latent steps
 
 # Dataset configuration
-dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
+dataset: "HuggingFaceH4/MATH-500"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
 split: "test"            # choices: ["test", "train"]
 num_examples: null       # null means use all examples, or specify a number
 
@@ -17,7 +17,7 @@ batch_size: 8
 # Output configuration
 output_dir: "outputs"
 wandb_project: "latent_reasoner_eval"
-wandb_run_name: null     # null means auto-generate, or specify a string
+wandb_run_name: latent_reasoner_1p6b-epoch00_HuggingFaceH4/MATH-500_eval     # null means auto-generate, or specify a string
 no_wandb: false
 
 # Reproducibility

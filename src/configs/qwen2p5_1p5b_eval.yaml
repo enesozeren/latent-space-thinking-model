@@ -1,9 +1,9 @@
 # Model configuration
-model_name_or_path: "Qwen/Qwen2.5-1.5B"
+model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250618_235325/hf_checkpoints/epoch01"
 is_latent_reasoner: False  # Set to true for latent reasoner evaluation
 
 # Dataset configuration
-dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
+dataset: "HuggingFaceH4/MATH-500"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
 split: "test"            # choices: ["test", "train"]
 num_examples: null       # null means use all examples, or specify a number
 
@@ -16,7 +16,7 @@ batch_size: 8
 # Output configuration
 output_dir: "outputs"
 wandb_project: "latent_reasoner_eval"
-wandb_run_name: null     # null means auto-generate, or specify a string
+wandb_run_name: qwen_1p5b_sft_epoch01_HuggingFaceH4/MATH-500_eval
 no_wandb: false
 
 # Reproducibility

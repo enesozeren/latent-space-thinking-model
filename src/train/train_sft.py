@@ -57,15 +57,6 @@ def train_model(config_path: str) -> None:
     # Create data module
     data_module = SFTDataModule(cfg, tokenizer)
     logging.info("Data created.")
-
-    # Qualitative evaluation callback
-    sample_cb = GenerateSamplesCallback(
-        tokenizer=tokenizer,
-        num_samples=2,
-        is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
-        add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"]
-    )
-    callbacks.append(sample_cb)
     
     # If using latent reasoning, add dataset refresh callback to introduce latent steps incrementally
     if cfg["model"]["is_latent_reasoner"]:
@@ -77,13 +68,22 @@ def train_model(config_path: str) -> None:
         )
         callbacks.append(dataset_refresh_cb)
 
+        # Qualitative evaluation callback
+        sample_cb = GenerateSamplesCallback(
+            tokenizer=tokenizer,
+            num_samples=2,
+            is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
+            add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"]
+        )
+        callbacks.append(sample_cb)        
+    
     # Setup trainer
     trainer = L.Trainer(
         max_epochs=cfg["training"]["num_train_epochs"],
         accelerator="auto",
         devices="auto",
-        strategy="auto",  # Will automatically choose the best strategy for multi-GPU
-        precision="bf16-mixed",  # Use bf16 precision
+        strategy="auto",
+        precision="bf16-true",
         accumulate_grad_batches=cfg["training"]["gradient_accumulation_steps"],
         log_every_n_steps=cfg["training"]["logging_steps"],
         val_check_interval=cfg["training"]["eval_steps"],

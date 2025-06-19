@@ -192,7 +192,8 @@ class SFTDataModule(L.LightningDataModule):
             assert self.add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
         else:
             # For standard SFT, no latent steps are used
-            self.num_tokens_per_latent = None        
+            self.num_tokens_per_latent = None
+            self.add_num_latents_per_update = None
 
     def setup(self, stage: str, update_cycle: int = 0):
         """Setup datasets."""
@@ -334,7 +335,7 @@ class GenerateSamplesCallback(L.Callback):
 
             answer = self.tokenizer.decode(
                 seq,
-                skip_special_tokens=True,
+                skip_special_tokens=False,
                 clean_up_tokenization_spaces=True,
             )
 

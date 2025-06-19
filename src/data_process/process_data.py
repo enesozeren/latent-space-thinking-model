@@ -31,7 +31,7 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     raw_ds = load_dataset(config["dataset"]["name"], "default")
     
     # Since there's only a train split in DeepMath-103K, create train/val splits
-    split_ds = raw_ds["train"].train_test_split(test_size=0.1, seed=config["training"]["seed"])
+    split_ds = raw_ds["train"].train_test_split(test_size=0.025, seed=config["training"]["seed"])
     
     processed = {
         "train": split_ds["train"].map(
@@ -79,24 +79,25 @@ def _openr1math_to_sft(
     end_think_id = tokenizer.end_think_token_id
     start_answer_id = tokenizer.start_answer_token_id
     end_answer_id = tokenizer.end_answer_token_id
+    if num_tokens_per_latent and add_num_latents_per_update:
+        start_latent_id = tokenizer.start_latent_token_id
+        end_latent_id = tokenizer.end_latent_token_id
+        latent_id = tokenizer.latent_token_id
 
     # latent-token replacement logic
     if num_tokens_per_latent and add_num_latents_per_update and update_cycle > 0:
+        # Calculate the number of latent steps
         num_latent_steps = min(add_num_latents_per_update * update_cycle, len(think_ids) // num_tokens_per_latent) 
-        latent_ids = (
-            [tokenizer.start_latent_token_id] +
-            [tokenizer.latent_token_id] * num_latent_steps +
-            [tokenizer.end_latent_token_id]
-        )
         # Reduce the tokens in the think block
         think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
         # Create the input_ids
-        input_ids = prefix_ids + latent_ids + \
+        input_ids = prefix_ids + \
+            [start_latent_id] + [latent_id] * num_latent_steps + [end_latent_id] + \
             [start_think_id] + think_ids + [end_think_id] + \
             [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
         # Mask prefix and latent tokens but not the think/answer sections
         labels = [-100] * len(prefix_ids) + \
-            [-100] * len(latent_ids) + \
+            [start_latent_id] + [-100] * num_latent_steps + [end_latent_id] + \
             [start_think_id] + think_ids + [end_think_id] + \
             [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
     else:
@@ -128,7 +129,7 @@ def prepare_dataset_latent_sft(dataset_name, num_examples, tokenizer, seed: int,
     raw_ds = raw_ds.select(range(num_examples))
 
     # Create train/validation splits
-    split_ds = raw_ds.train_test_split(test_size=0.1, seed=seed)
+    split_ds = raw_ds.train_test_split(test_size=0.025, seed=seed)
 
     # Process both splits with map, passing tokenizer & num_latent_steps via fn_kwargs
     processed = {
