@@ -298,19 +298,36 @@ class GenerateSamplesCallback(L.Callback):
             full_ids_tensor = sample["input_ids"]
             full_ids = full_ids_tensor.tolist()
 
-            # Cut just before the answer starts
-            if self.is_latent_reasoner and total_latents > 0:
-                token_id = pl_module.tokenizer.start_latent_token_id
-            else:
-                token_id = pl_module.tokenizer.start_think_token_id
+            # Convert token IDs to string
+            full_text = pl_module.tokenizer.decode(full_ids)
 
-            indices = [i for i, x in enumerate(full_ids) if x == token_id]
-            if len(indices) >= 3:
-                cut_idx = indices[2]
+            # Determine which token string to search for
+            if self.is_latent_reasoner and total_latents > 0:
+                target_token = "<|start-latent|>"
             else:
+                target_token = "<think>"
+
+            # Find all occurrences of the target token in the text
+            token_positions = []
+            start_pos = 0
+            while True:
+                pos = full_text.find(target_token, start_pos)
+                if pos == -1:
+                    break
+                token_positions.append(pos)
+                start_pos = pos + 1
+
+            # Check if we have at least 3 occurrences
+            if len(token_positions) < 3:
                 raise ValueError("The third start think or latent token is not found for in GenerateSamplesCallback.")
 
-            prompt_ids = full_ids[:cut_idx]
+            third_token_pos = token_positions[2]
+
+            # Get the text up to the third token
+            prompt_text = full_text[:third_token_pos]
+
+            # Convert back to token IDs
+            prompt_ids = pl_module.tokenizer.encode(prompt_text, add_special_tokens=False)
 
             # back to tensor for generation
             input_ids = torch.tensor(prompt_ids, dtype=torch.long, device=pl_module.device).unsqueeze(0)
@@ -331,7 +348,10 @@ class GenerateSamplesCallback(L.Callback):
                     max_new_tokens=512,
                     do_sample=False
                 )
-                # remove the question from the generated ids
+                # For non-latent reasoner, we need to remove the prompt from generated_ids
+                # Since we're now working with string-based cutting, we use the original cut approach
+                # but need to find the equivalent cut_idx in the original token sequence
+                cut_idx = len(prompt_ids)
                 generated_ids = generated_ids[:, cut_idx:]
 
             question = pl_module.tokenizer.decode(
@@ -353,8 +373,8 @@ class GenerateSamplesCallback(L.Callback):
             )
 
             step = trainer.global_step
-            logging.info(f"[step {step}] [VAL Question {n}] ❓ {question}")
-            logging.info(f"[step {step}] [VAL Answer   {n}] 🤖 {answer}")
+            logging.info(f"[step {step}] [VAL Question {n}] {question}")
+            logging.info(f"[step {step}] [VAL Answer   {n}] {answer}")
 
 
 class DatasetRefreshCallback(L.Callback):

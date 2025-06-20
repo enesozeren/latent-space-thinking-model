@@ -70,17 +70,17 @@ def _openr1math_to_sft(
     answer_text = example.get("answer", "").strip()
     final_ans = f"\\boxed{{{answer_text}}}"
 
-    # build token sequence
+    # add system prompt,<think> and <answer> tags to the COT and final answer
     system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
-    prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"
+    prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"    
+    cot_text = "<think>" + cot_text + "</think>"
+    final_ans = "<answer>" + final_ans + "</answer>"
+
+    # build token sequence
     prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
     think_ids = tokenizer(cot_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
-    start_think_id = tokenizer.start_think_token_id
-    end_think_id = tokenizer.end_think_token_id
-    start_answer_id = tokenizer.start_answer_token_id
-    end_answer_id = tokenizer.end_answer_token_id
     if num_tokens_per_latent and add_num_latents_per_update:
         start_latent_id = tokenizer.start_latent_token_id
         end_latent_id = tokenizer.end_latent_token_id
@@ -95,22 +95,16 @@ def _openr1math_to_sft(
         # Create the input_ids
         input_ids = prefix_ids + \
             [start_latent_id] + [latent_id] * num_latent_steps + [end_latent_id] + \
-            [start_think_id] + think_ids + [end_think_id] + \
-            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+            think_ids + answer_ids + [eos_id]
         # Mask prefix and latent tokens but not the think/answer sections
         labels = [-100] * len(prefix_ids) + \
             [start_latent_id] + [-100] * num_latent_steps + [end_latent_id] + \
-            [start_think_id] + think_ids + [end_think_id] + \
-            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+            think_ids +answer_ids + [eos_id]
     else:
         # No latent tokens
-        input_ids = prefix_ids + \
-            [start_think_id] + think_ids + [end_think_id] + \
-            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+        input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
         # Only mask the prefix
-        labels = [-100] * len(prefix_ids) + \
-            [start_think_id] + think_ids + [end_think_id] + \
-            [start_answer_id] + answer_ids + [end_answer_id] + [eos_id]
+        labels = [-100] * len(prefix_ids) + think_ids + answer_ids + [eos_id]
 
     attention_mask = [1] * len(input_ids)
 
@@ -128,7 +122,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
                         update_cycle: int = 0) -> DatasetDict:
     """Convert open-r1/OpenR1-Math-220k into latent-reasoning SFT format using the provided tokenizer."""
     # Load dataset
-    raw_ds = load_dataset(dataset_name, "extended", split="train")
+    raw_ds = load_dataset(dataset_name, "default", split="train")
     raw_ds = raw_ds.select(range(num_examples))
 
     # Create train/validation splits

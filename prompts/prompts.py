@@ -17,9 +17,10 @@ i.e., <|start-latent|> reasoning in latent here <|end-latent|> <think> reasoning
 
 GSM8K_1_SHOT_EVAL=r"""
 Example 1:
-User:Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?
-Assistant:<think>Weng earns 12 / 60 = 0.2 per minute.
-Working 50 minutes, she earned 0.2 x 50 = 10.</think><answer>\\boxed{10}</answer>
+User:Alex earns $9 an hour for cleaning a home. Yesterday, he did 90 minutes of cleaning. How much did hhe earn?
+Assistant:<think>Alex earns $9 per hour for cleaning.
+He worked 90 minutes which is 90/60 = 1.5 hours.
+Working 90 minutes, he earned 9 x 1.5 = 13.5</think><answer>\\boxed{13.5}</answer>
 
 Example 2:
 """
@@ -29,11 +30,11 @@ SYSTEM_PROMPT_LATENT_REASONER_GSM8K_1_SHOT_EVAL = SYSTEM_PROMPT_LATENT_REASONER 
 
 MATH500_1_SHOT_EVAL=r"""
 Example 1:
-User:How many positive whole-number divisors does 196 have?
-Assistant: <think>First prime factorize $196=2^2\cdot7^2$. The prime factorization of any divisor of 196 cannot include any primes other than 2 and 7. 
-We are free to choose either 0, 1, or 2 as the exponent of 2 in the prime factorization of a divisor of 196. 
-Similarly, we may choose 0, 1, or 2 as the exponent of 7. In total, there are $3\times 3=9$ possibilities for the prime factorization of a divisor of 196. 
-Distinct prime factorizations correspond to distinct integers, so there are 9 divisors of 196.</think><answer>\\boxed{9}</answer>
+User:How many different positive integer divisors does 48 have?
+Assistant:<think>First prime factorize $48=2^4\cdot3^1$. The prime factorization of any divisor of 48 can only include the primes 2 and 3. 
+We are free to choose either 0, 1, 2, 3 or 4 as the exponent of 2 (5 options).
+For the exponent of 3, we can choose 0 or 1 (2 options).
+In total, there are $5\times 2=10$ possibilities.</think><answer>\\boxed{10}</answer>
 
 Example 2:
 """

@@ -55,33 +55,7 @@ def _assing_token_ids_to_tokenizer_model(tokenizer, model, special_tokens_dict):
     logging.info("Token ids assigned to tokenizer and model.")
 
 def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
-    """Setup special tokens for think, answer and latent reasoning."""
-    START_THINK = "<think>"
-    END_THINK = "</think>"
-    START_ANSWER = "<answer>"
-    END_ANSWER = "</answer>"
-    think_answer_specials_dict = {
-        "start_think_token": START_THINK,
-        "end_think_token": END_THINK,
-        "start_answer_token": START_ANSWER,
-        "end_answer_token": END_ANSWER,
-    }
-    think_answer_specials_list = list(think_answer_specials_dict.values())
-
-    # Add think/answer special tokens if not already present
-    vocab = tokenizer.get_vocab()
-    if not all(tok in vocab for tok in think_answer_specials_list):
-        # Add them to the tokenizer's vocab using additional_special_tokens
-        special_tokens_dict = {"additional_special_tokens": think_answer_specials_list}
-        num_new = tokenizer.add_special_tokens(special_tokens_dict)
-        model.resize_token_embeddings(len(tokenizer))
-        logging.info(f"Added {num_new} new tokens")
-        logging.info(f"Special tokens: {tokenizer.special_tokens_map}")
-    else:
-        # tokens already there – still handy to have the ids on the objects
-        logging.info("Think/answer special tokens already present – skipping re-initialisation.")
-
-    _assing_token_ids_to_tokenizer_model(tokenizer, model, think_answer_specials_dict)
+    """Setup special tokens for latent reasoning."""
 
     if is_latent_reasoner:
         START_LATENT = "<|start-latent|>"

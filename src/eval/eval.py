@@ -230,16 +230,19 @@ def eval_model(config_path):
 
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"],
                                               padding_side="left")
+    
     # Setup special tokens
-    if cfg["model"]["is_sft_version"]:
-        model, tokenizer = setup_special_tokens(
-            model=model, 
-            tokenizer=tokenizer,
-            is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
-        )
+    model, tokenizer = setup_special_tokens(
+        model=model, 
+        tokenizer=tokenizer,
+        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+    )
 
     # prompts
     prompts = [format_prompt(q, cfg["dataset"]["dataset"], cfg["model"]["is_latent_reasoner"]) for q in dataset["questions"]]
+
+    # print example prompt
+    logger.info(f"Example prompt:\n{prompts[0]}")
 
     # ── generate answers ────────────────────────────────────────────────────
     start = time.time()
