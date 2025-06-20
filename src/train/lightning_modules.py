@@ -20,13 +20,14 @@ class ModelLightningModule(L.LightningModule):
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
         self.config = config
-        self.tokenizer = AutoTokenizer.from_pretrained(config["model"]["base_model_name_or_path"])
         self.save_hyperparameters(config)
         
+        # Load tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(config["model"]["base_model_name_or_path"])
         # Initialize model
         if self.config["model"]["is_latent_reasoner"]:
             # For latent reasoner models, use the LatentReasoner class
-            self.model = LatentReasoner.from_pretrained(config["model"]["base_model_name_or_path"])
+            self.model = LatentReasoner.from_pretrained(self.config["model"]["base_model_name_or_path"])
         else:
             self.model = AutoModelForCausalLM.from_pretrained(self.config["model"]["base_model_name_or_path"])
         
@@ -111,13 +112,6 @@ class ModelLightningModule(L.LightningModule):
                 "frequency": 1,
             },
         }
-
-    # def on_train_epoch_start(self):
-    #     """Calculate initial validation loss on first epoch."""
-    #     if self.current_epoch == 0 and self.trainer.val_dataloaders:
-    #         val_results = self.trainer.validate(self, self.trainer.val_dataloaders, verbose=False)
-    #         initial_val_loss = val_results[0]['val_loss']
-    #         print('Validation Loss: ', initial_val_loss)
 
 
 class SFTDataset(Dataset):
@@ -261,11 +255,10 @@ class GenerateSamplesCallback(L.Callback):
     After each validation epoch, generate answers for the *first* `num_samples`
     examples in the validation set and log them.
     """
-    def __init__(self, tokenizer, num_samples: int, 
+    def __init__(self, num_samples: int, 
                  is_latent_reasoner: bool,
                  add_num_latents_per_update: int):
         super().__init__()
-        self.tokenizer = tokenizer
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
         self.add_num_latents_per_update = add_num_latents_per_update
@@ -304,9 +297,9 @@ class GenerateSamplesCallback(L.Callback):
 
             # Cut just before the answer starts
             if self.is_latent_reasoner and total_latents > 0:
-                cut_idx = full_ids.index(self.tokenizer.start_latent_token_id) # first <|start-latent|>
+                cut_idx = full_ids.index(pl_module.tokenizer.start_latent_token_id) # first <|start-latent|>
             else:
-                cut_idx = full_ids.index(self.tokenizer.start_think_token_id) # first <think>
+                cut_idx = full_ids.index(pl_module.tokenizer.start_think_token_id) # first <think>
 
             prompt_ids = full_ids[:cut_idx]
 
@@ -332,7 +325,7 @@ class GenerateSamplesCallback(L.Callback):
                 # remove the question from the generated ids
                 generated_ids = generated_ids[:, cut_idx:]
 
-            question = self.tokenizer.decode(
+            question = pl_module.tokenizer.decode(
                 input_ids[0].tolist(),
                 skip_special_tokens=False,
                 clean_up_tokenization_spaces=True
@@ -344,7 +337,7 @@ class GenerateSamplesCallback(L.Callback):
             if isinstance(seq, list) and seq and isinstance(seq[0], list):
                 seq = seq[0]
 
-            answer = self.tokenizer.decode(
+            answer = pl_module.tokenizer.decode(
                 seq,
                 skip_special_tokens=False,
                 clean_up_tokenization_spaces=True,

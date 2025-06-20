@@ -70,7 +70,6 @@ def train_model(config_path: str) -> None:
 
     # Qualitative evaluation callback
     sample_cb = GenerateSamplesCallback(
-        tokenizer=tokenizer,
         num_samples=2,
         is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
         add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"] if cfg["model"]["is_latent_reasoner"] else None,
@@ -103,7 +102,7 @@ def train_model(config_path: str) -> None:
     if is_rank_zero():
         final_model_path = os.path.join(output_dir, "final_model")
         model.model.save_pretrained(final_model_path)
-        tokenizer.save_pretrained(final_model_path)
+        model.tokenizer.save_pretrained(final_model_path)
         logging.info(f"Final model saved to {final_model_path}")
 
 
