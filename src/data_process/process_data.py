@@ -17,8 +17,8 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """
     question = example["problem"].strip()
     answer = example["answer"].strip()
-    sys_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
-    prompt = sys_prompt + "\nUser:" + question + "\nAssistant:"
+    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
+    prompt = system_prompt + "\nUser:" + question + "\nAssistant:"
 
     return {
         "prompt": prompt,
@@ -57,6 +57,7 @@ def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
 def _openr1math_to_sft(
     example, 
     tokenizer, 
+    is_latent_reasoner: bool,
     num_tokens_per_latent: Optional[int] = None, 
     add_num_latents_per_update: Optional[int] = None,
     update_cycle: int = 0) -> dict:
@@ -70,7 +71,8 @@ def _openr1math_to_sft(
     final_ans = f"\\boxed{{{answer_text}}}"
 
     # build token sequence
-    prefix_text   = "\nUser: " + question + "\nAssistant:"
+    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
+    prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"
     prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
     think_ids = tokenizer(cot_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
@@ -119,10 +121,11 @@ def _openr1math_to_sft(
     }
 
 
-def prepare_dataset_latent_sft(dataset_name, num_examples, tokenizer, seed: int, 
-                               num_tokens_per_latent: Optional[int] = None, 
-                               add_num_latents_per_update: Optional[int] = None,
-                               update_cycle: int = 0) -> DatasetDict:
+def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int, 
+                        is_latent_reasoner: bool,
+                        num_tokens_per_latent: Optional[int] = None, 
+                        add_num_latents_per_update: Optional[int] = None,
+                        update_cycle: int = 0) -> DatasetDict:
     """Convert open-r1/OpenR1-Math-220k into latent-reasoning SFT format using the provided tokenizer."""
     # Load dataset
     raw_ds = load_dataset(dataset_name, "extended", split="train")
@@ -137,6 +140,7 @@ def prepare_dataset_latent_sft(dataset_name, num_examples, tokenizer, seed: int,
             _openr1math_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
+                "is_latent_reasoner": is_latent_reasoner,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
                 "update_cycle": update_cycle
@@ -147,6 +151,7 @@ def prepare_dataset_latent_sft(dataset_name, num_examples, tokenizer, seed: int,
             _openr1math_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
+                "is_latent_reasoner": is_latent_reasoner,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
                 "update_cycle": update_cycle

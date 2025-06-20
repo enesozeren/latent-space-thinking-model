@@ -1,8 +1,7 @@
 #!/bin/bash
-#SBATCH -p mcml-hgx-h100-94x4
-#SBATCH -q mcml
-#SBATCH --gres=gpu:4
-#SBATCH --time=0-02:00:00
+#SBATCH -p lrz-dgx-a100-80x8
+#SBATCH --gres=gpu:8
+#SBATCH --time=0-01:30:00
 #SBATCH -o bash_outputs/output_qwen_1p5b_sft.log
 #SBATCH -e bash_outputs/error_qwen_1p5b_sft.log
 

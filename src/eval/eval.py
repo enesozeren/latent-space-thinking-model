@@ -28,7 +28,9 @@ from math_verify import LatexExtractionConfig, parse, verify
 
 from prompts.prompts import (
     SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL,
-    SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+    SYSTEM_PROMPT_MATH500_1_SHOT_EVAL,
+    SYSTEM_PROMPT_LATENT_REASONER_GSM8K_1_SHOT_EVAL,
+    SYSTEM_PROMPT_LATENT_REASONER_MATH500_1_SHOT_EVAL
 )
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
@@ -102,12 +104,18 @@ def compute_pass_at_k(pred_lists: List[List[str]], gt: List[str], k: int) -> flo
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def format_prompt(question: str, dataset_name: str) -> str:
+def format_prompt(question: str, dataset_name: str, is_latent_reasoner: bool) -> str:
     """Return a single string prompt (few-shot) for a question."""
     if dataset_name == "openai/gsm8k":
-        system_prompt = SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL
+        if is_latent_reasoner:
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_GSM8K_1_SHOT_EVAL
+        else:
+            system_prompt = SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL
     else:
-        system_prompt = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+        if is_latent_reasoner:
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_MATH500_1_SHOT_EVAL
+        else:
+            system_prompt = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
     return f"{system_prompt}\nUser:{question}\nAssistant:"
 
 
@@ -231,7 +239,7 @@ def eval_model(config_path):
         )
 
     # prompts
-    prompts = [format_prompt(q, cfg["dataset"]["dataset"]) for q in dataset["questions"]]
+    prompts = [format_prompt(q, cfg["dataset"]["dataset"], cfg["model"]["is_latent_reasoner"]) for q in dataset["questions"]]
 
     # ── generate answers ────────────────────────────────────────────────────
     start = time.time()

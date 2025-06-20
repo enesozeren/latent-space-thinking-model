@@ -10,7 +10,7 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from src.data_process.process_data import prepare_dataset_latent_sft
+from src.data_process.process_data import prepare_dataset_sft
 from src.latent_reasoner.model import LatentReasoner
 from src.train.utils import is_rank_zero, setup_special_tokens
 
@@ -194,14 +194,17 @@ class SFTDataModule(L.LightningDataModule):
         # Update current epoch number
         self.update_cycle = update_cycle
         # Prepare the dataset
-        data = prepare_dataset_latent_sft(dataset_name=self.config["dataset"]["name"], 
-                                          num_examples=self.config["dataset"]["num_examples"],
-                                          tokenizer=self.tokenizer, 
-                                          seed=self.config["training"]["seed"],
-                                          num_tokens_per_latent=self.num_tokens_per_latent,
-                                          add_num_latents_per_update=self.add_num_latents_per_update,
-                                          update_cycle=update_cycle)
-        
+        data = prepare_dataset_sft(
+            dataset_name=self.config["dataset"]["name"], 
+            num_examples=self.config["dataset"]["num_examples"],
+            tokenizer=self.tokenizer, 
+            seed=self.config["training"]["seed"],
+            is_latent_reasoner=self.is_latent_reasoner,
+            num_tokens_per_latent=self.num_tokens_per_latent,
+            add_num_latents_per_update=self.add_num_latents_per_update,
+            update_cycle=update_cycle
+        )
+
         self.train_dataset = SFTDataset(data["train"])
         self.val_dataset = SFTDataset(data["validation"])
 
@@ -297,9 +300,15 @@ class GenerateSamplesCallback(L.Callback):
 
             # Cut just before the answer starts
             if self.is_latent_reasoner and total_latents > 0:
-                cut_idx = full_ids.index(pl_module.tokenizer.start_latent_token_id) # first <|start-latent|>
+                token_id = pl_module.tokenizer.start_latent_token_id
             else:
-                cut_idx = full_ids.index(pl_module.tokenizer.start_think_token_id) # first <think>
+                token_id = pl_module.tokenizer.start_think_token_id
+
+            indices = [i for i, x in enumerate(full_ids) if x == token_id]
+            if len(indices) >= 3:
+                cut_idx = indices[2]
+            else:
+                raise ValueError("The third start think or latent token is not found for in GenerateSamplesCallback.")
 
             prompt_ids = full_ids[:cut_idx]
 
