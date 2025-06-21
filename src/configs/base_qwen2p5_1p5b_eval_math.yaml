@@ -1,9 +1,7 @@
 # Model configuration
 model:
-  model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250615_182941/hf_checkpoints/epoch00"
-  is_sft_version: True
-  is_latent_reasoner: True  # Set to true for latent reasoner evaluation
-  num_latent_steps: 0  # Number of latent steps
+  base_model_name_or_path: "Qwen/Qwen2.5-1.5B"
+  is_latent_reasoner: False  # Set to true for latent reasoner evaluation
 
 # Dataset configuration
 dataset:
@@ -16,13 +14,13 @@ generation:
   temperature: 0.2
   top_p: 0.95
   max_length: 1024
-  batch_size: 4
-
+  batch_size: 8
+  
 # Output configuration
 logs:
   output_dir: "outputs"
   wandb_project: "latent_reasoner_eval"
-  wandb_run_name: latent_reasoner_1p6b-epoch00_HuggingFaceH4/MATH-500_eval     # null means auto-generate, or specify a string
+  wandb_run_name: qwen_1p5b_HuggingFaceH4/MATH-500
   no_wandb: false
 
 # Reproducibility

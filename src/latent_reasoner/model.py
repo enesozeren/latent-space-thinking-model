@@ -231,14 +231,13 @@ class LatentReasoner(Qwen2ForCausalLM):
         num_latent_steps = (input_ids[0] == self.latent_token_id).sum().item()
 
         if num_latent_steps > 0:
-            # Find the start latent token index
-            start_latent_index = (input_ids[0] == self.start_latent_token_id).nonzero(as_tuple=True)[0]
-            end_latent_index = (input_ids[0] == self.end_latent_token_id).nonzero(as_tuple=True)[0]
+            # Find the latent token indices
+            latent_idxs = (input_ids[0] == self.latent_token_id).nonzero(as_tuple=True)[0]
 
             # Get the prompt_ids
-            prompt_ids = input_ids[0, :start_latent_index]
+            prompt_ids = input_ids[0, :latent_idxs[0] - 1] # -1 because of the start latent token and exclusive list indexing after :
             # Get the answer part after the latent tokens
-            answer_ids = input_ids[0, end_latent_index + 1:]
+            answer_ids = input_ids[0, latent_idxs[-1] + 2:] # +2 because of the end latent token and inclusive list indexing before :
 
             # Call the generate method to get the prompt + latent step embeddings
             prompt_completion_embeds, _ = self._prepare_latent_context(

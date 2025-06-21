@@ -5,7 +5,7 @@ model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 100000
+  num_examples: 80000
 
 training:
   seed: 42
@@ -18,7 +18,7 @@ training:
   lr_scheduler_step_size: 50
   num_train_epochs: 5
   logging_steps: 1
-  eval_steps: 4096
+  eval_steps: 1024
   weight_decay: 0.01
 
 wandb:

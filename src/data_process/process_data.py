@@ -66,19 +66,17 @@ def _openr1math_to_sft(
     Returns a dict with input_ids, attention_mask and labels.
     """
     question = example["problem"].strip()
-    cot_text = example.get("solution", "").strip()
+    think_text = example.get("solution", "").strip()
     answer_text = example.get("answer", "").strip()
     final_ans = f"\\boxed{{{answer_text}}}"
 
     # add system prompt,<think> and <answer> tags to the COT and final answer
     system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
     prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"    
-    cot_text = "<think>" + cot_text + "</think>"
     final_ans = "<answer>" + final_ans + "</answer>"
 
     # build token sequence
-    prefix_ids    = tokenizer(prefix_text, add_special_tokens=False).input_ids
-    think_ids = tokenizer(cot_text, add_special_tokens=False).input_ids
+    prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
     if num_tokens_per_latent and add_num_latents_per_update:
@@ -88,10 +86,20 @@ def _openr1math_to_sft(
 
     # latent-token replacement logic
     if num_tokens_per_latent and add_num_latents_per_update and update_cycle > 0:
+        # convert the think text to ids
+        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Calculate the number of latent steps
         num_latent_steps = min(add_num_latents_per_update * update_cycle, len(think_ids) // num_tokens_per_latent) 
         # Reduce the tokens in the think block
         think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
+        # Add start think and end think tokens in the think ids
+        ## first convert the think ids to a string
+        think_text = tokenizer.decode(think_ids, skip_special_tokens=False)
+        ## then add the start think and end think tokens
+        think_text = "<think>" + think_text + "</think>"
+        ## then convert the think text back to ids
+        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
+
         # Create the input_ids
         input_ids = prefix_ids + \
             [start_latent_id] + [latent_id] * num_latent_steps + [end_latent_id] + \
@@ -99,8 +107,11 @@ def _openr1math_to_sft(
         # Mask prefix and latent tokens but not the think/answer sections
         labels = [-100] * len(prefix_ids) + \
             [start_latent_id] + [-100] * num_latent_steps + [end_latent_id] + \
-            think_ids +answer_ids + [eos_id]
+            think_ids + answer_ids + [eos_id]
     else:
+        # convert the think text to ids after adding the start and end think tokens
+        think_text = "<think>" + think_text + "</think>"
+        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # No latent tokens
         input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
         # Only mask the prefix

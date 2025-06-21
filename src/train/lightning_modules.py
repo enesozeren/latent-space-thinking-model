@@ -189,10 +189,10 @@ class SFTDataModule(L.LightningDataModule):
             self.num_tokens_per_latent = None
             self.add_num_latents_per_update = None
 
-    def setup(self, stage: str, update_cycle: int = 0):
+    def setup(self, stage: str, next_epoch: int = 0):
         """Setup datasets."""
         # Update current epoch number
-        self.update_cycle = update_cycle
+        update_cycle = next_epoch + 1 # since epoch starts with 0 and in the first epoch we want to have latent steps
         # Prepare the dataset
         data = prepare_dataset_sft(
             dataset_name=self.config["dataset"]["name"], 
@@ -221,14 +221,13 @@ class SFTDataModule(L.LightningDataModule):
 
             print(f"\n=== SFT Data Check (Update Cycle: {update_cycle}) ===")
             print("Prompt:\n", decoded_prompt)
-            # if you store the answer/label under another key, adjust here
-            if "labels" in sample:
-                print("\nLabel IDs:", sample["labels"])
+            torch.set_printoptions(threshold=float('inf'))
+            print("\nLabel IDs:", sample["labels"])
             print("====================================\n")        
 
-    def update_dataset(self, update_cycle: int):
-        """Re-setup datasets for a new update_cycle with different preprocessing."""
-        self.setup("fit", update_cycle)
+    def update_dataset(self, next_epoch: int):
+        """Re-setup datasets for a new epoch with different preprocessing."""
+        self.setup("fit", next_epoch)
 
     def train_dataloader(self):
         """Return training dataloader."""
@@ -276,9 +275,9 @@ class GenerateSamplesCallback(L.Callback):
         if trainer.global_rank != 0:
             return
         
-        current_epoch = trainer.current_epoch
+        update_cycle = trainer.current_epoch + 1
         if self.is_latent_reasoner:
-            total_latents = current_epoch * self.add_num_latents_per_update
+            total_latents = update_cycle * self.add_num_latents_per_update
         
         pl_module.eval()
 
@@ -316,15 +315,11 @@ class GenerateSamplesCallback(L.Callback):
                     break
                 token_positions.append(pos)
                 start_pos = pos + 1
-
-            # Check if we have at least 3 occurrences
-            if len(token_positions) < 3:
-                raise ValueError("The third start think or latent token is not found for in GenerateSamplesCallback.")
-
-            third_token_pos = token_positions[2]
+            
+            prompt_finish_idx = token_positions[2] # since there are 2 <think> or <|start-latent|> tokens in the system prompt
 
             # Get the text up to the third token
-            prompt_text = full_text[:third_token_pos]
+            prompt_text = full_text[:prompt_finish_idx]
 
             # Convert back to token IDs
             prompt_ids = pl_module.tokenizer.encode(prompt_text, add_special_tokens=False)
@@ -444,7 +439,7 @@ class DatasetRefreshCallback(L.Callback):
         )
 
         # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
-        trainer.datamodule.update_dataset(update_cycle=next_epoch)
+        trainer.datamodule.update_dataset(next_epoch=next_epoch)
 
         # 3. Reset every optimiser
         for opt in trainer.optimizers:
