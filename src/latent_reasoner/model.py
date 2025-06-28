@@ -42,79 +42,94 @@ class LatentReasoner(Qwen2ForCausalLM):
 
         batch_size = input_ids.size(0)
         device = input_ids.device
+        hidden_size = self.config.hidden_size
+
+        # Pre-allocate the final tensors to avoid repeated concatenations
+        final_seq_length = input_ids.size(1) + 1 + num_latent_steps + 1  # +1 for start, +num_latent_steps, +1 for end
+        embed_dtype = self.get_input_embeddings().weight.dtype
+        inputs_embeds = torch.zeros((batch_size, final_seq_length, hidden_size), 
+                                  dtype=embed_dtype, 
+                                  device=device)
+        mask_dtype = torch.long if attention_mask is None else attention_mask.dtype
+        # Attention mask is 1 for all tokens
+        attention_mask = torch.ones((batch_size, final_seq_length), 
+                                   dtype=mask_dtype, 
+                                   device=device)
 
         # Add the start latent token <|start-latent|>
         start_latents = torch.full((batch_size, 1), self.start_latent_token_id, dtype=input_ids.dtype, device=device)
-        input_ids = torch.cat([input_ids, start_latents], dim=1)
-
-        inputs_embeds = self.get_input_embeddings()(input_ids)
-
-        if attention_mask is None:
-            # new length already includes the extra token
-            attention_mask = torch.ones_like(input_ids)
-        else:
-            # caller-provided mask: grow it by one
-            start_mask = torch.ones((batch_size, 1),
-                                    dtype=attention_mask.dtype,
-                                    device=device)
-            attention_mask = torch.cat([attention_mask, start_mask], dim=1)
-            
-        seq_length = inputs_embeds.size(1)
+        input_ids_with_start = torch.cat([input_ids, start_latents], dim=1)
         
-        # Handle position_ids
-        position_ids = torch.arange(0, seq_length, dtype=torch.long, device=device)
-        position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+        # Get embeddings for the original input + start token
+        initial_embeds = self.get_input_embeddings()(input_ids_with_start)
+        current_length = initial_embeds.size(1)
+        
+        # Copy initial embeddings to the pre-allocated tensor
+        inputs_embeds[:, :current_length, :] = initial_embeds
 
         context_manager = torch.enable_grad() if track_grad else torch.no_grad()
         with context_manager:
-            # Use KV cache properly and manage memory
-            past_key_values = None
+            # First, process the initial sequence (input + start token) to get initial KV cache
+            initial_outputs = super(LatentReasoner, self).forward(
+                inputs_embeds=initial_embeds,
+                attention_mask=attention_mask[:, :current_length],
+                output_hidden_states=True,
+                use_cache=True
+            )
             
-            for step_idx in range(num_latent_steps):
-                # MEMORY FIX: Only pass the last token for subsequent steps
-                if step_idx == 0:
-                    step_inputs_embeds = inputs_embeds
-                    step_attention_mask = attention_mask
-                    step_position_ids = position_ids
-                else:
-                    # Only process the last token
-                    step_inputs_embeds = inputs_embeds[:, -1:, :]
-                    step_attention_mask = attention_mask[:, -1:]
-                    step_position_ids = position_ids[:, -1:]
+            # Get the initial KV cache
+            past_key_values = initial_outputs.past_key_values
+            
+            # Get the hidden state for the last token (start latent token)
+            last_hidden = initial_outputs.hidden_states[-1][:, -1:, :]
+            if not track_grad:
+                last_hidden = last_hidden.detach()
+            
+            # Store the hidden state as the first latent embedding
+            inputs_embeds[:, current_length:current_length+1, :] = last_hidden
+            attention_mask[:, current_length] = 1
+            current_length += 1
+            
+            del initial_outputs
+            
+            # Now process each latent step using KV cache
+            for step_idx in range(num_latent_steps - 1):  # -1 because we already processed the first latent token
+                # Only pass the new latent token embedding to the forward pass
+                new_latent_embed = inputs_embeds[:, current_length-1:current_length, :]
+                new_attention_mask = attention_mask[:, :current_length]
                 
                 outputs = super(LatentReasoner, self).forward(
-                    inputs_embeds=step_inputs_embeds,
-                    attention_mask=step_attention_mask,
-                    position_ids=step_position_ids,
+                    inputs_embeds=new_latent_embed,
+                    attention_mask=new_attention_mask,
                     past_key_values=past_key_values,
                     output_hidden_states=True,
-                    return_dict=True,
                     use_cache=True
                 )
                 
                 # Update past_key_values for next iteration
                 past_key_values = outputs.past_key_values
                 
-                # Get the hidden state for the last token
+                # Get the hidden state for the new latent token
                 step_hidden = outputs.hidden_states[-1][:, -1:, :]
                 
                 # Detach to prevent gradient accumulation across steps
                 if not track_grad:
                     step_hidden = step_hidden.detach()
                 
-                # Append the new hidden state
-                inputs_embeds = torch.cat([inputs_embeds, step_hidden], dim=1)
+                # Add the latent embedding to inputs_embeds at the current position
+                inputs_embeds[:, current_length:current_length+1, :] = step_hidden
                 
-                # Update attention mask and position_ids (unchanged)
-                new_mask = torch.ones(batch_size, 1, device=device, dtype=attention_mask.dtype)
-                attention_mask = torch.cat([attention_mask, new_mask], dim=1)
-                new_positions = torch.full((batch_size, 1), position_ids.size(1), dtype=torch.long, device=device)
-                position_ids = torch.cat([position_ids, new_positions], dim=1)
+                # Update attention mask for the new latent token
+                attention_mask[:, current_length] = 1
+                
+                # Increment current_length for next iteration
+                current_length += 1
                 
                 # Clear intermediate variables
-                del outputs, step_hidden
-                if step_idx % 5 == 0:  # Periodic cleanup
-                    torch.cuda.empty_cache()
+                del step_hidden
+                
+                # Clear intermediate variables
+                del outputs
 
         # Add the end latent token <|end-latent|>
         end_latent_embeds = self.get_input_embeddings()(
@@ -125,9 +140,8 @@ class LatentReasoner(Qwen2ForCausalLM):
                 device=device,
             )
         )
-        inputs_embeds = torch.cat([inputs_embeds, end_latent_embeds], dim=1)
-        new_mask = torch.ones(batch_size, 1, device=device, dtype=attention_mask.dtype)
-        attention_mask = torch.cat([attention_mask, new_mask], dim=1)
+        inputs_embeds[:, current_length:current_length+1, :] = end_latent_embeds
+        attention_mask[:, current_length] = 1
 
         return inputs_embeds, attention_mask
 
@@ -149,7 +163,7 @@ class LatentReasoner(Qwen2ForCausalLM):
         except (KeyError, AttributeError):
             # either 'generation_config' isn't in the dict,
             # or it doesn't have a .max_new_tokens attribute
-            max_new_tokens = gen_kwargs.get('max_new_tokens')
+            max_new_tokens = gen_kwargs.get('max_new_tokens', 0)
 
         with torch.no_grad():
             # augment with latent steps
@@ -160,16 +174,22 @@ class LatentReasoner(Qwen2ForCausalLM):
                 track_grad=False
             )
 
-        if max_new_tokens > 0:
+        if max_new_tokens and max_new_tokens > 0:
             # Call the base generator
             # The base generater will return only the generated token ids when we pass inputs_embeds
             # since it doesn't have the input token ids but only the input embeddings
             with torch.no_grad():  
-                completion_language_token_ids = super().generate(
+                generation_output = super().generate(
                     inputs_embeds=inputs_embeds,
                     attention_mask=attention_mask,
                     **gen_kwargs,
-                ).detach()
+                )
+                # Handle different return types from generate
+                if hasattr(generation_output, 'sequences'):
+                    completion_language_token_ids = generation_output.sequences
+                else:
+                    completion_language_token_ids = generation_output
+                completion_language_token_ids = completion_language_token_ids.detach()
             
             # Append the completion embeddings to the inputs_embeds
             completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
@@ -189,19 +209,21 @@ class LatentReasoner(Qwen2ForCausalLM):
             dtype = input_ids.dtype
             
             # Create tensor of latent token ids [start_latent, latent, latent, ..., end_latent]
+            if self.latent_token_id is None:
+                raise ValueError("latent_token_id must be set before calling generate")
             latent_ids = torch.ones((batch_size, num_latent_steps+2),  # +2 for start and end latent tokens
                                     dtype=dtype, device=device) * self.latent_token_id
             latent_ids[:, 0] = self.start_latent_token_id
             latent_ids[:, -1] = self.end_latent_token_id
             
             # Concatenate with completion language tokens
-            if max_new_tokens > 0:
+            if max_new_tokens and max_new_tokens > 0:
                 completion_token_ids = torch.cat([latent_ids, completion_language_token_ids], dim=1)
             else:
                 completion_token_ids = latent_ids
         else:
             # No latent reasoning → return only the language tokens
-            completion_token_ids = completion_language_token_ids            
+            completion_token_ids = completion_language_token_ids
 
         # Final cleanup
         torch.cuda.empty_cache()

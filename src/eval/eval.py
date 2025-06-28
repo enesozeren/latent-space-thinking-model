@@ -35,7 +35,7 @@ from prompts.prompts import (
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import load_config, setup_special_tokens
+from src.train.utils import load_config, setup_latent_tokens
 
 logging.basicConfig(
     level=logging.INFO,
@@ -246,7 +246,7 @@ def eval_model(config_path):
                                               padding_side="left")
     
     # Setup special tokens
-    model, tokenizer = setup_special_tokens(
+    model, tokenizer = setup_latent_tokens(
         model=model, 
         tokenizer=tokenizer,
         is_latent_reasoner=cfg["model"]["is_latent_reasoner"]

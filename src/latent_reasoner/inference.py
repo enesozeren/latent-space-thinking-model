@@ -12,7 +12,7 @@ if __name__ == "__main__":
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 
-    model, tokenizer = setup_special_tokens(
+    model, tokenizer = setup_latent_tokens(
         model=model, 
         tokenizer=tokenizer,
         is_latent_reasoner=True

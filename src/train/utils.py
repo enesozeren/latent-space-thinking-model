@@ -54,7 +54,7 @@ def _assing_token_ids_to_tokenizer_model(tokenizer, model, special_tokens_dict):
 
     logging.info("Token ids assigned to tokenizer and model.")
 
-def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
+def setup_latent_tokens(model, tokenizer, is_latent_reasoner: bool = False):
     """Setup special tokens for latent reasoning."""
 
     if is_latent_reasoner:

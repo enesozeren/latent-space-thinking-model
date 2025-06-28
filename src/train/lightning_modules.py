@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data_process.process_data import prepare_dataset_sft
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import is_rank_zero, setup_special_tokens
+from src.train.utils import is_rank_zero, setup_latent_tokens
 
 class ModelLightningModule(L.LightningModule):
     """PyTorch Lightning module for training a Language Model with SFT."""
@@ -32,7 +32,7 @@ class ModelLightningModule(L.LightningModule):
             self.model = AutoModelForCausalLM.from_pretrained(self.config["model"]["base_model_name_or_path"])
         
         # Setup special tokens
-        self.model, self.tokenizer = setup_special_tokens(
+        self.model, self.tokenizer = setup_latent_tokens(
             model=self.model, 
             tokenizer=self.tokenizer,
             is_latent_reasoner=self.config["model"]["is_latent_reasoner"])

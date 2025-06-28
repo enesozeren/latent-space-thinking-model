@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 from src.train.rewards import latent_format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset_rl
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import setup_special_tokens
+from src.train.utils import setup_latent_tokens
 
 def load_config(config_path):
     """Load and return the YAML configuration file."""
@@ -116,7 +116,7 @@ def train_model(config_path: str) -> None:
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
 
     # Set up special tokens for think, answer and latent reasoning
-    model, tokenizer = setup_special_tokens(model=model, 
+    model, tokenizer = setup_latent_tokens(model=model, 
                                             tokenizer=tokenizer, 
                                             is_latent_reasoner=cfg["model"]["is_latent_reasoner"])
     
