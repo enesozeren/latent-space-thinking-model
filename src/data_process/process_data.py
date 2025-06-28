@@ -26,9 +26,11 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     }
 
 
-def prepare_dataset(config: dict, is_latent_reasoner: bool) -> DatasetDict:
+def prepare_dataset_rl(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
     raw_ds = load_dataset(config["dataset"]["name"], "default")
+    # select the last num_examples_from_last examples
+    raw_ds = raw_ds.select(range(len(raw_ds["train"]) - config["dataset"]["num_examples_from_last"], len(raw_ds["train"])))
     
     # Since there's only a train split in DeepMath-103K, create train/val splits
     split_ds = raw_ds["train"].train_test_split(test_size=0.025, seed=config["training"]["seed"])

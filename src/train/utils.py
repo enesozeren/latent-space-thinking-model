@@ -42,7 +42,7 @@ def setup_logging(config: dict):
 def _assing_token_ids_to_tokenizer_model(tokenizer, model, special_tokens_dict):
     """Assign token ids to the tokenizer and model."""
     for attr_name, tok_str in special_tokens_dict.items():
-        # e.g. attr_name = "start_think_token", tok_str = "<think>"
+        # e.g. attr_name = "start_latent_token", tok_str = "<|start-latent|>"
         tok_id = tokenizer.convert_tokens_to_ids(tok_str)
 
         # Ensure both the *_token and *_token_id attrs exist on the tokenizer
@@ -69,14 +69,18 @@ def setup_special_tokens(model, tokenizer, is_latent_reasoner: bool = False):
         latent_specials_list = list(latent_specials_dict.values())
 
         vocab = tokenizer.get_vocab()
-        if not all(tok in vocab for tok in latent_specials_list):
-            special_tokens_dict = {"additional_special_tokens": latent_specials_list}
-            num_new = tokenizer.add_special_tokens(special_tokens_dict)
+        missing_tokens = [tok for tok in latent_specials_list if tok not in vocab]
+        
+        if missing_tokens:
+            # Add tokens as normal tokens to the vocabulary
+            for token in missing_tokens:
+                tokenizer.add_tokens([token])
+            
+            # Resize model embeddings to accommodate new tokens
             model.resize_token_embeddings(len(tokenizer))
-            logging.info(f"Added {num_new} new tokens")
-            logging.info(f"Special tokens: {tokenizer.special_tokens_map}")
+            logging.info(f"Added {len(missing_tokens)} new normal tokens: {missing_tokens}")
         else:
-            logging.info("Latent special tokens already present – skipping re-initialisation.")
+            logging.info("Latent tokens already present in vocabulary – skipping re-initialisation.")
 
         _assing_token_ids_to_tokenizer_model(tokenizer, model, latent_specials_dict)
 

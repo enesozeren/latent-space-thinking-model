@@ -130,6 +130,20 @@ def extract_answer_from_response(response: str) -> str:
     return (box_match.group(1).strip() if box_match else "")
 
 
+def clean_decoded_text(text: str, tokenizer: PreTrainedTokenizer) -> str:
+    """Remove specific special tokens from decoded text while preserving others."""
+    # Get the string representations of special tokens we want to remove
+    tokens_to_remove = [tokenizer.pad_token, tokenizer.eos_token]
+    
+    # Remove the tokens from the text
+    cleaned_text = text
+    for token in tokens_to_remove:
+        if token:
+            cleaned_text = cleaned_text.replace(token, '')
+    
+    return cleaned_text.strip()
+
+
 # Generation routine that returns *all* answers 
 def generate_responses_multi(
     cfg,
@@ -193,7 +207,7 @@ def generate_responses_multi(
             if cfg["model"]["is_latent_reasoner"]:
                 # Latent Reasoner model returns only the completion token ids
                 decoded = [
-                    tokenizer.decode(o, skip_special_tokens=True).strip()
+                    clean_decoded_text(tokenizer.decode(o, skip_special_tokens=False), tokenizer)
                     for o in samples
                 ]
             else:

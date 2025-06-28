@@ -9,7 +9,7 @@ from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoTokenizer
 
 from src.train.rewards import latent_format_reward, accuracy_reward
-from src.data_process.process_data import prepare_dataset
+from src.data_process.process_data import prepare_dataset_rl
 from src.latent_reasoner.model import LatentReasoner
 from src.train.utils import setup_special_tokens
 
@@ -104,7 +104,7 @@ def train_model(config_path: str) -> None:
     logging.info("Configuration file contents:\n%s", config_content)
     
     # Prepare the dataset
-    data = prepare_dataset(config=cfg, is_latent_reasoner=True)
+    data = prepare_dataset_rl(config=cfg, is_latent_reasoner=True)
 
     # Arguments
     args = setup_training_args(config=cfg)

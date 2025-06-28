@@ -9,7 +9,7 @@ from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
-from src.data_process.process_data import prepare_dataset
+from src.data_process.process_data import prepare_dataset_rl
 from src.train.utils import setup_special_tokens
 
 def load_config(config_path):
@@ -103,7 +103,7 @@ def train_model(config_path: str) -> None:
     logging.info("Configuration file contents:\n%s", config_content)
     
     # Prepare the dataset
-    data = prepare_dataset(cfg)
+    data = prepare_dataset_rl(cfg)
     
     # Arguments
     args = setup_training_args(cfg)

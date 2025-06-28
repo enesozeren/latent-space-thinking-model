@@ -9,13 +9,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def get_format_info(response, tokenizer):
+def get_format_info(response, tokenizer, is_latent_reasoner):
     """Extract format information from the model response."""
     
-    full_pattern = re.compile(
-        r"^<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
-        re.DOTALL
-    )
+    if is_latent_reasoner:
+        full_pattern = re.compile(
+            r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+            re.DOTALL
+        )
+    else:
+        full_pattern = re.compile(
+            r"^<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+            re.DOTALL
+        )
     fully_formatted = bool(full_pattern.match(response.strip()))
 
     boxed_pattern = r"\\boxed\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
@@ -29,6 +35,7 @@ def get_format_info(response, tokenizer):
 
 def save_results(cfg, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer):
     """Save evaluation results to output directory."""
+    is_latent_reasoner = cfg["model"]["is_latent_reasoner"]
     # Create output directory if it doesn't exist
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_name = Path(cfg["model"]["base_model_name_or_path"]).name
@@ -46,7 +53,7 @@ def save_results(cfg, dataset, first_responses, first_extracted_answers_in_respo
             zip(dataset["questions"], dataset["answers"], first_responses, first_extracted_answers_in_response, correctness_list)
         ):
             
-            has_boxed, fully_formatted, token_length = get_format_info(response, tokenizer)
+            has_boxed, fully_formatted, token_length = get_format_info(response, tokenizer, is_latent_reasoner)
             example = {
                 "id": i,
                 "question": question,
