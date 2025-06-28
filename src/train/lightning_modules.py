@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any
 import os
+import shutil
 
 import torch
 from torch.utils.data import Dataset
@@ -212,7 +213,7 @@ class SFTDataModule(L.LightningDataModule):
         if len(self.train_dataset) and is_rank_zero():
             sample = self.train_dataset[0]
 
-            # decode the input text so it’s readable
+            # decode the input text so it's readable
             decoded_prompt = self.tokenizer.decode(
                 sample["input_ids"],
                 skip_special_tokens=False,
@@ -375,7 +376,7 @@ class GenerateSamplesCallback(L.Callback):
 class DatasetRefreshCallback(L.Callback):
     """
     For latent-reasoner SFT training:
-    – refresh the datamodule’s preprocessing every epoch
+    – refresh the datamodule's preprocessing every epoch
     – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
     def __init__(self, add_num_latents_per_update: int, num_tokens_per_latent: int):
@@ -404,13 +405,13 @@ class DatasetRefreshCallback(L.Callback):
         Generic reset that works for StepLR, CosineAnnealingLR, OneCycleLR,
         ReduceLROnPlateau, etc.
         """
-        # Restore each param-group’s LR to the original base LR
+        # Restore each param-group's LR to the original base LR
         for group, base_lr in zip(scheduler.optimizer.param_groups, scheduler.base_lrs):
             group["lr"] = base_lr
 
         # Lightning always calls scheduler.step() after optimiser.step().
         # Setting last_epoch = -1 and _step_count = 0 guarantees that the next
-        # call behaves as if it’s the very first scheduler step.
+        # call behaves as if it's the very first scheduler step.
         scheduler.last_epoch = -1
         if hasattr(scheduler, "_step_count"):
             scheduler._step_count = 0
@@ -461,31 +462,60 @@ class DatasetRefreshCallback(L.Callback):
 
 class HFModelCheckpoint(ModelCheckpoint):
     """
-    Saves `pl_module.model.save_pretrained(...)` + `tokenizer.save_pretrained(...)`
-    at the same cadence ModelCheckpoint would normally save a .ckpt file.
+    Latent-reasoner: keep every epoch (epoch00/, epoch01/, …).
+    Regular model  : keep *one* best folder, named step{step:04d}/.
     """
-    def __init__(self, output_dir: str, **kwargs):
-        # we don't need monitor/mode because we aren't ranking anything
-        super().__init__(
-            dirpath=os.path.join(output_dir, "hf_checkpoints"),
-            filename="epoch{epoch:02d}",   # epoch00/, epoch01/, …
-            monitor=None,
-            save_top_k=-1,                 # keep every epoch
-            every_n_epochs=1,
-            **kwargs
-        )
-        self.output_dir = self.dirpath
 
-    # This is where ModelCheckpoint normally serialises a *.ckpt.
-    # Replace that logic with HF's `save_pretrained`.
+    def __init__(self, output_dir: str, is_latent_reasoner: bool = False, **kwargs):
+        ckpt_root = os.path.join(output_dir, "hf_checkpoints")
+
+        if is_latent_reasoner:
+            super().__init__(
+                dirpath=ckpt_root,
+                filename="{epoch:02d}",     # epoch00/, epoch01/, …
+                every_n_epochs=1,
+                save_top_k=-1,                   # keep all epochs
+                **kwargs,
+            )
+        else:
+            super().__init__(
+                dirpath=ckpt_root,
+                filename="{step:04d}",       # step0001/, …
+                monitor="val_loss",
+                mode="min",
+                save_top_k=1,                    # keep only the best
+                **kwargs,
+            )
+
+        self.is_latent_reasoner = is_latent_reasoner
+        self._prev_best_dir: str | None = None   # track the folder to delete next time
+
+    #  Replace the .ckpt write with HF’s save_pretrained + tokenizer.
     def _save_checkpoint(self, trainer, filepath: str) -> None:
-        epoch_idx   = trainer.current_epoch
-        save_dir    = os.path.join(self.output_dir, f"epoch{epoch_idx:02d}")
+
+        # Save only from rank 0
+        if trainer.global_rank != 0:
+            return
+
+        # PL passes step0001.  Strip the extension → folder path.
+        save_dir = os.path.splitext(filepath)[0]
         os.makedirs(save_dir, exist_ok=True)
 
-        pl_module   = trainer.lightning_module
+        pl_module = trainer.lightning_module
         pl_module.model.save_pretrained(save_dir)
         pl_module.tokenizer.save_pretrained(save_dir)
-        logging.info(f"Epoch {epoch_idx} checkpoint saved to {save_dir}")
-        # ModelCheckpoint tracks its last path; set it so resuming works.
-        self.last_model_path = save_dir                   # <-- important
+
+        # regular-model cleanup: delete the prior "best" dir
+        if not self.is_latent_reasoner and self._prev_best_dir and \
+           os.path.isdir(self._prev_best_dir) and self._prev_best_dir != save_dir:
+            try:
+                shutil.rmtree(self._prev_best_dir)
+            except OSError as exc:
+                logging.warning(f"Couldn’t delete stale best dir {self._prev_best_dir}: {exc}")
+
+        # remember current best
+        if not self.is_latent_reasoner:
+            self._prev_best_dir = save_dir
+
+        # let PL know where the latest checkpoint lives (so resume works)
+        self.last_model_path = save_dir

@@ -47,7 +47,10 @@ def train_model(config_path: str) -> None:
     callbacks = []
     
     # Model checkpoint callback
-    checkpoint_callback = HFModelCheckpoint(output_dir)
+    checkpoint_callback = HFModelCheckpoint(
+        output_dir, 
+        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+    )
     callbacks.append(checkpoint_callback)
     
     # Learning rate monitor

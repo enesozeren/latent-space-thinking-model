@@ -16,7 +16,7 @@ training:
   lr_scheduler_gamma: 0.8
   learning_rate: 5.0e-5
   lr_scheduler_step_size: 50
-  num_train_epochs: 5
+  num_train_epochs: 4
   logging_steps: 1
   eval_steps: 1024
   weight_decay: 0.01

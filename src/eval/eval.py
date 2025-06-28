@@ -207,7 +207,7 @@ def generate_responses_multi(
             if cfg["model"]["is_latent_reasoner"]:
                 # Latent Reasoner model returns only the completion token ids
                 decoded = [
-                    clean_decoded_text(tokenizer.decode(o, skip_special_tokens=False), tokenizer)
+                    tokenizer.decode(o, skip_special_tokens=True).strip()
                     for o in samples
                 ]
             else:
