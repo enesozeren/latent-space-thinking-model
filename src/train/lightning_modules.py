@@ -38,6 +38,9 @@ class ModelLightningModule(L.LightningModule):
             tokenizer=self.tokenizer,
             is_latent_reasoner=self.config["model"]["is_latent_reasoner"])
 
+        # Enable gradient checkpointing for efficiency
+        self.model.gradient_checkpointing_enable()
+
         # Store training config for optimizer setup
         self.learning_rate = float(self.config["training"]["learning_rate"])
         self.weight_decay = self.config["training"]["weight_decay"]
@@ -334,14 +337,14 @@ class GenerateSamplesCallback(L.Callback):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     num_latent_steps=total_latents,
-                    max_new_tokens=512,
+                    max_new_tokens=2048,
                     do_sample=False
                 )
             else:
                 generated_ids = pl_module.model.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    max_new_tokens=512,
+                    max_new_tokens=2048,
                     do_sample=False
                 )
                 # For non-latent reasoner, we need to remove the prompt from generated_ids

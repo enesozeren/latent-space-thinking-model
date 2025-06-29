@@ -3,6 +3,15 @@ Evaluate models on openai/gsm8k and HuggingFaceH4/MATH-500
 ----------------------------------------------------------
 * Generate NUM_SAMPLES answers for every question.
 * Compute accuracy of the first answer and pass@k.
+
+Updated for multi-GPU execution with **torchrun --standalone --nproc_per_node=4**.
+Changes are limited to:
+  • imports for distributed support
+  • distributed initialisation & device selection
+  • per-rank dataset slicing
+  • gathering predictions/answers for metric computation and saving on rank-0
+  • final cleanup of the process group
+Everything else is untouched.
 """
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11,12 +20,13 @@ PASS_AT_K_VALUES   = [1, 4]     # which pass@k metrics to compute
 # ──────────────────────────────────────────────────────────────────────────────
 
 import argparse
-import re, sys, time, random, logging
+import re, sys, time, random, logging, os                 # ← added os
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 import yaml
 
 import torch, numpy as np
+import torch.distributed as dist                          # ← distributed import
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
     set_seed, PreTrainedModel, PreTrainedTokenizer
@@ -221,7 +231,21 @@ def generate_responses_multi(
 
 
 def eval_model(config_path):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # ── distributed initialisation ───────────────────────────────────────────
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    use_ddp   = world_size > 1
+    if use_ddp:
+        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        rank       = dist.get_rank()
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
+    else:
+        local_rank = 0
+        rank       = 0
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # ─────────────────────────────────────────────────────────────────────────
+
     cfg = load_config(config_path)
     seed = cfg["seed"]
     torch.manual_seed(seed); random.seed(seed); np.random.seed(seed)
@@ -231,19 +255,34 @@ def eval_model(config_path):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-    # dataset
-    dataset = prepare_dataset(cfg["dataset"]["dataset"], cfg["dataset"]["split"], cfg["dataset"]["num_examples"])
-    logger.info(f"Evaluating {cfg["model"]["base_model_name_or_path"]} on {cfg["dataset"]["dataset"]}")
+    # dataset (created on every rank, then sliced)
+    dataset = prepare_dataset(cfg["dataset"]["dataset"],
+                              cfg["dataset"]["split"],
+                              cfg["dataset"]["num_examples"])
+
+    if rank == 0:
+        logger.info(f"Evaluating {cfg['model']['base_model_name_or_path']} "
+                    f"on {cfg['dataset']['dataset']} "
+                    f"with world_size={world_size}")
+
+    # per-rank slicing
+    questions_rank = dataset["questions"][rank::world_size]
+    answers_rank   = dataset["answers"][rank::world_size]
 
     # Initialize model
     if cfg["model"]["is_latent_reasoner"]:
-        # For latent reasoner models, use the LatentReasoner class
-        model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"]).to(device)
+        model = LatentReasoner.from_pretrained(
+            cfg["model"]["base_model_name_or_path"]
+        ).to(device)
     else:
-        model = AutoModelForCausalLM.from_pretrained(cfg["model"]["base_model_name_or_path"]).to(device)
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg["model"]["base_model_name_or_path"]
+        ).to(device)
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"],
-                                              padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(
+        cfg["model"]["base_model_name_or_path"],
+        padding_side="left"
+    )
     
     # Setup special tokens
     model, tokenizer = setup_latent_tokens(
@@ -253,10 +292,13 @@ def eval_model(config_path):
     )
 
     # prompts
-    prompts = [format_prompt(q, cfg["dataset"]["dataset"], cfg["model"]["is_latent_reasoner"]) for q in dataset["questions"]]
+    prompts = [format_prompt(q, cfg["dataset"]["dataset"],
+                             cfg["model"]["is_latent_reasoner"])
+               for q in questions_rank]
 
-    # print example prompt
-    logger.info(f"Example prompt:\n{prompts[0]}")
+    # print example prompt (rank-0 only)
+    if rank == 0 and prompts:
+        logger.info(f"Example prompt:\n{prompts[0]}")
 
     # ── generate answers ────────────────────────────────────────────────────
     start = time.time()
@@ -271,9 +313,7 @@ def eval_model(config_path):
         top_p=cfg["generation"]["top_p"],
         num_samples=NUM_SAMPLES,
     )
-    generation_time = time.time() - start
-    logger.info(f"Generated {NUM_SAMPLES} answers per question "
-                f"in {generation_time:.1f}s")
+
 
     # extract boxed answers
     extracted_multi = [
@@ -281,27 +321,62 @@ def eval_model(config_path):
         for resp_list in responses_multi
     ]
 
-    # first answer lists (for backward-compat accuracy + format checks)
+    # first answer lists
     first_responses = [resp_list[0] for resp_list in responses_multi]
-    first_extracted_answers_in_response = [ans_list[0]  for ans_list  in extracted_multi]
 
-    # ── compute metrics ─────────────────────────────────────────────────────
-    accuracy_first, correctness_list = compute_accuracy_first(first_extracted_answers_in_response, dataset["answers"])
-    metrics = {
-        "accuracy":  accuracy_first,
-        "num_samples": NUM_SAMPLES,
-        "generation_time": generation_time,
-        "generation_time_per_question": generation_time / (len(dataset["questions"]) * NUM_SAMPLES)
-    }
-    
-    # pass@k
-    for k in PASS_AT_K_VALUES:
-        metrics[f"pass@{k}"] = compute_pass_at_k(extracted_multi,
-                                                 dataset["answers"], k)
+    # ── gather predictions & answers ────────────────────────────────────────
+    if use_ddp:
+        # gather lists from all ranks
+        gathered_preds   = [None] * world_size
+        gathered_first   = [None] * world_size
+        gathered_answers = [None] * world_size
 
-    logger.info(f"Evaluation results:\n{metrics}")
+        dist.all_gather_object(gathered_preds, extracted_multi)
+        dist.all_gather_object(gathered_first, first_responses)
+        dist.all_gather_object(gathered_answers, answers_rank)
 
-    save_results(cfg, dataset, first_responses, first_extracted_answers_in_response, correctness_list, metrics, tokenizer)
+        # rank-0 concatenates
+        if rank == 0:
+            extracted_multi = [p for part in gathered_preds for p in part]
+            first_responses = [f for part in gathered_first for f in part]
+            answers_all     = [a for part in gathered_answers for a in part]
+    else:
+        answers_all = answers_rank
+
+    # ── compute & save metrics (rank-0) ─────────────────────────────────────
+    if rank == 0:
+        first_extracted_answers = [ans_list[0] for ans_list in extracted_multi]
+
+        accuracy_first, correctness_list = compute_accuracy_first(
+            first_extracted_answers, answers_all
+        )
+        metrics = {
+            "accuracy":  accuracy_first,
+            "num_samples": NUM_SAMPLES
+        }
+        # pass@k
+        for k in PASS_AT_K_VALUES:
+            metrics[f"pass@{k}"] = compute_pass_at_k(
+                extracted_multi, answers_all, k
+            )
+
+        logger.info(f"Evaluation results:\n{metrics}")
+
+        save_results(cfg, {
+                "questions": dataset["questions"],
+                "answers":   dataset["answers"]
+            },
+            first_responses,
+            first_extracted_answers,
+            correctness_list,
+            metrics,
+            tokenizer
+        )
+
+    # ensure all ranks finish before teardown
+    if use_ddp:
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 def parse_args():

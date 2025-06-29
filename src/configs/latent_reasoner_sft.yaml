@@ -1,16 +1,16 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250620_144907/hf_checkpoints/epoch00"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250629_014214/hf_checkpoints/step=0714"
   is_latent_reasoner: True
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 80000
+  num_examples: 100000
 
 training:
   seed: 42
   add_num_latents_per_update: 2
-  num_tokens_per_latent: 5
+  num_tokens_per_latent: 10
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1

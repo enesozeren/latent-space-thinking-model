@@ -28,7 +28,7 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
 
 def prepare_dataset_rl(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
-    raw_ds = load_dataset(config["dataset"]["name"], "default")
+    raw_ds = load_dataset(config["dataset"]["name"], "extended", split="train")
     # select the last num_examples_from_last examples
     raw_ds = raw_ds.select(range(len(raw_ds["train"]) - config["dataset"]["num_examples_from_last"], len(raw_ds["train"])))
     
@@ -56,20 +56,25 @@ def prepare_dataset_rl(config: dict, is_latent_reasoner: bool) -> DatasetDict:
     return DatasetDict(processed)
 
 
-def _openr1math_to_sft(
+def _metamathqa_to_sft(
     example, 
     tokenizer, 
     is_latent_reasoner: bool,
     num_tokens_per_latent: Optional[int] = None, 
     add_num_latents_per_update: Optional[int] = None,
     update_cycle: int = 0) -> dict:
-    """Process a single open-r1/OpenR1-Math-220k example into SFT format with explicit <think>/<answer> sections.
+    """Process a single meta-math/MetaMathQA example into SFT format with explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
     """
-    question = example["problem"].strip()
-    think_text = example.get("solution", "").strip()
-    answer_text = example.get("answer", "").strip()
+    question = example["query"].strip()
+    think_text = example["response"].strip()
+    # parse the answer from the think text in meta-math/MetaMathQA dataset
+    # response always contains the answer is at the end
+    m = re.search(r'The answer is:\s*([^\n\r#]+)', think_text, flags=re.IGNORECASE)
+    answer_found = m is not None
+    answer_text = m.group(1).strip() if m else "answer not found"
+
     final_ans = f"\\boxed{{{answer_text}}}"
 
     # add system prompt,<think> and <answer> tags to the COT and final answer
@@ -125,6 +130,7 @@ def _openr1math_to_sft(
         "input_ids":      input_ids,
         "attention_mask": attention_mask,
         "labels":         labels,
+        "answer_found":   answer_found
     }
 
 
@@ -133,9 +139,11 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
                         num_tokens_per_latent: Optional[int] = None, 
                         add_num_latents_per_update: Optional[int] = None,
                         update_cycle: int = 0) -> DatasetDict:
-    """Convert open-r1/OpenR1-Math-220k into latent-reasoning SFT format using the provided tokenizer."""
+    """Convert meta-math/MetaMathQA into latent-reasoning SFT format using the provided tokenizer.
+    """
+    logger = logging.getLogger(__name__)
     # Load dataset
-    raw_ds = load_dataset(dataset_name, "default", split="train")
+    raw_ds = load_dataset(dataset_name, split="train")
     raw_ds = raw_ds.select(range(num_examples))
 
     # Create train/validation splits
@@ -144,7 +152,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
     # Process both splits with map, passing tokenizer & num_latent_steps via fn_kwargs
     processed = {
         "train": split_ds["train"].map(
-            _openr1math_to_sft,
+            _metamathqa_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
@@ -155,7 +163,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             remove_columns=raw_ds.column_names,
         ),
         "validation": split_ds["test"].map(
-            _openr1math_to_sft,
+            _metamathqa_to_sft,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
@@ -167,8 +175,16 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
         ),
     }
 
+    # Drop examples where the answer was missing
+    processed["train"]      = processed["train"].filter(lambda ex: ex["answer_found"])
+    processed["validation"] = processed["validation"].filter(lambda ex: ex["answer_found"])
+
+    # (optional) tidy up
+    processed["train"]      = processed["train"].remove_columns("answer_found")
+    processed["validation"] = processed["validation"].remove_columns("answer_found")
+
+
     # Log the dataset split sizes
-    logger = logging.getLogger(__name__)
     logger.info(f"Update Cycle: {update_cycle}")    
     logger.info("SFT Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
