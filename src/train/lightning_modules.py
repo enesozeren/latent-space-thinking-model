@@ -206,7 +206,8 @@ class SFTDataModule(L.LightningDataModule):
             is_latent_reasoner=self.is_latent_reasoner,
             num_tokens_per_latent=self.num_tokens_per_latent,
             add_num_latents_per_update=self.add_num_latents_per_update,
-            update_cycle=update_cycle
+            update_cycle=update_cycle,
+            max_num_latents=self.config["training"]["max_num_latents"]
         )
 
         self.train_dataset = SFTDataset(data["train"])
@@ -387,7 +388,7 @@ class DatasetRefreshCallback(L.Callback):
         self.add_num_latents_per_update = add_num_latents_per_update
         self.num_tokens_per_latent = num_tokens_per_latent
 
-    #  Helpers                                                              #
+    #  Helpers
     @staticmethod
     def _reset_optimizer_state(optimizer: torch.optim.Optimizer) -> None:
         """

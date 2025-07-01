@@ -1,6 +1,7 @@
 from typing import Optional
 import re
 import torch
+import math
 from datasets import load_dataset, DatasetDict
 from prompts.prompts import (
     SYSTEM_PROMPT, 
@@ -62,7 +63,8 @@ def _metamathqa_to_sft(
     is_latent_reasoner: bool,
     num_tokens_per_latent: Optional[int] = None, 
     add_num_latents_per_update: Optional[int] = None,
-    update_cycle: int = 0) -> dict:
+    update_cycle: int = 0,
+    max_num_latents: int = 100) -> dict:
     """Process a single meta-math/MetaMathQA example into SFT format with explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
@@ -96,9 +98,15 @@ def _metamathqa_to_sft(
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Calculate the number of latent steps
-        num_latent_steps = min(add_num_latents_per_update * update_cycle, len(think_ids) // num_tokens_per_latent) 
+        num_latent_steps = min(
+            add_num_latents_per_update * update_cycle, 
+            math.ceil(len(think_ids) // num_tokens_per_latent), 
+            max_num_latents)
         # Reduce the tokens in the think block
-        think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
+        if num_latent_steps < max_num_latents:
+            think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
+        else:
+            think_ids = []
         # Add start think and end think tokens in the think ids
         ## first convert the think ids to a string
         think_text = tokenizer.decode(think_ids, skip_special_tokens=False)
@@ -138,7 +146,8 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
                         is_latent_reasoner: bool,
                         num_tokens_per_latent: Optional[int] = None, 
                         add_num_latents_per_update: Optional[int] = None,
-                        update_cycle: int = 0) -> DatasetDict:
+                        update_cycle: int = 0,
+                        max_num_latents: int = 100) -> DatasetDict:
     """Convert meta-math/MetaMathQA into latent-reasoning SFT format using the provided tokenizer.
     """
     logger = logging.getLogger(__name__)
@@ -158,7 +167,8 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
                 "is_latent_reasoner": is_latent_reasoner,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
-                "update_cycle": update_cycle
+                "update_cycle": update_cycle,
+                "max_num_latents": max_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
@@ -169,7 +179,8 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
                 "is_latent_reasoner": is_latent_reasoner,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
-                "update_cycle": update_cycle
+                "update_cycle": update_cycle,
+                "max_num_latents": max_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
