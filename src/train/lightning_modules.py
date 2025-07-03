@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 import shutil
 
@@ -14,6 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.data_process.process_data import prepare_dataset_sft
 from src.latent_reasoner.model import LatentReasoner
 from src.train.utils import is_rank_zero, setup_latent_tokens
+from src.train.utils import count_max_total_latents
 
 class ModelLightningModule(L.LightningModule):
     """PyTorch Lightning module for training a Language Model with SFT."""
@@ -184,19 +185,21 @@ class SFTDataModule(L.LightningDataModule):
         self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
         # If latent reasoning is enabled, prepare the dataset with latent tokens
         if self.is_latent_reasoner:
+            self.max_num_latents = self.config["training"]["max_num_latents"]
             self.num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
             self.add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
             assert self.num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
             assert self.add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
         else:
             # For standard SFT, no latent steps are used
+            self.max_num_latents = None
             self.num_tokens_per_latent = None
             self.add_num_latents_per_update = None
 
-    def setup(self, stage: str, next_epoch: int = 0):
+    def setup(self, stage: str, next_epoch: int = 1):
         """Setup datasets."""
         # Update current epoch number
-        update_cycle = next_epoch + 1 # since epoch starts with 0 and in the first epoch we want to have latent steps
+        update_cycle = next_epoch
         # Prepare the dataset
         data = prepare_dataset_sft(
             dataset_name=self.config["dataset"]["name"], 
@@ -207,7 +210,7 @@ class SFTDataModule(L.LightningDataModule):
             num_tokens_per_latent=self.num_tokens_per_latent,
             add_num_latents_per_update=self.add_num_latents_per_update,
             update_cycle=update_cycle,
-            max_num_latents=self.config["training"]["max_num_latents"]
+            max_num_latents=self.max_num_latents
         )
 
         self.train_dataset = SFTDataset(data["train"])
@@ -264,11 +267,13 @@ class GenerateSamplesCallback(L.Callback):
     """
     def __init__(self, num_samples: int, 
                  is_latent_reasoner: bool,
-                 add_num_latents_per_update: int):
+                 add_num_latents_per_update: Optional[int] = None,
+                 max_num_latents: Optional[int] = None):
         super().__init__()
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
         self.add_num_latents_per_update = add_num_latents_per_update
+        self.max_num_latents = max_num_latents
 
     @torch.inference_mode()
     def on_validation_epoch_end(
@@ -282,7 +287,11 @@ class GenerateSamplesCallback(L.Callback):
         
         update_cycle = trainer.current_epoch + 1
         if self.is_latent_reasoner:
-            total_latents = update_cycle * self.add_num_latents_per_update
+            total_latents = count_max_total_latents(
+                add_num_latents_per_update=self.add_num_latents_per_update,
+                update_cycle=update_cycle,
+                max_num_latents=self.max_num_latents
+            )
         
         pl_module.eval()
 
@@ -383,10 +392,11 @@ class DatasetRefreshCallback(L.Callback):
     – refresh the datamodule's preprocessing every epoch
     – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
-    def __init__(self, add_num_latents_per_update: int, num_tokens_per_latent: int):
+    def __init__(self, add_num_latents_per_update: int, num_tokens_per_latent: int, max_num_latents: int):
         super().__init__()
         self.add_num_latents_per_update = add_num_latents_per_update
         self.num_tokens_per_latent = num_tokens_per_latent
+        self.max_num_latents = max_num_latents
 
     #  Helpers
     @staticmethod
@@ -433,12 +443,18 @@ class DatasetRefreshCallback(L.Callback):
         pl_module: L.LightningModule,
         *args, **kwargs,
     ):
-        # 1. Work out how many latents we should have after *next* epoch
-        next_epoch = trainer.current_epoch + 1
-        total_latents = next_epoch * self.add_num_latents_per_update
+        # 1. Work out how many latents we had for the current epoch
+        current_epoch = trainer.current_epoch + 1 # since epoch starts with 0
+        logging.info(f"Current epoch which ends: {current_epoch}") 
+        next_epoch = trainer.current_epoch + 2
+        total_latents_this_epoch = count_max_total_latents(
+            add_num_latents_per_update=self.add_num_latents_per_update,
+            update_cycle=current_epoch,
+            max_num_latents=self.max_num_latents
+        )
         pl_module.log(
             "step/total_latents",
-            total_latents,
+            total_latents_this_epoch,
             on_epoch=True,
             on_step=False,
         )
@@ -458,7 +474,7 @@ class DatasetRefreshCallback(L.Callback):
             scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
             self._reset_scheduler_state(scheduler)
 
-        logging.info(f"Dataset + optimiser/scheduler reset (cycle {next_epoch}).")
+        logging.info(f"Dataset + optimiser/scheduler reset (cycle {current_epoch}).")
 
         # 5. Make sure every rank arrives here before training resumes
         trainer.strategy.barrier()

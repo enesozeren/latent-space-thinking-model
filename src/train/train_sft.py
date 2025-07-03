@@ -67,7 +67,8 @@ def train_model(config_path: str) -> None:
         # Dataset refresh callback
         dataset_refresh_cb = DatasetRefreshCallback(
             add_num_latents_per_update = cfg["training"]["add_num_latents_per_update"],
-            num_tokens_per_latent = cfg["training"]["num_tokens_per_latent"]
+            num_tokens_per_latent = cfg["training"]["num_tokens_per_latent"],
+            max_num_latents = cfg["training"]["max_num_latents"]
         )
         callbacks.append(dataset_refresh_cb)
 
@@ -75,7 +76,8 @@ def train_model(config_path: str) -> None:
     sample_cb = GenerateSamplesCallback(
         num_samples=2,
         is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
-        add_num_latents_per_update=cfg["training"]["add_num_latents_per_update"] if cfg["model"]["is_latent_reasoner"] else None,
+        add_num_latents_per_update=cfg.get("training", {}).get("add_num_latents_per_update"),
+        max_num_latents=cfg.get("training", {}).get("max_num_latents")
     )
     callbacks.append(sample_cb)        
     

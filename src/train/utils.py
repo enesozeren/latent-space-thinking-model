@@ -39,6 +39,7 @@ def setup_logging(config: dict):
     logging.info("Logging initialised – saving to %s", log_path)
     return output_dir
 
+
 def _assing_token_ids_to_tokenizer_model(tokenizer, model, special_tokens_dict):
     """Assign token ids to the tokenizer and model."""
     for attr_name, tok_str in special_tokens_dict.items():
@@ -53,6 +54,7 @@ def _assing_token_ids_to_tokenizer_model(tokenizer, model, special_tokens_dict):
         setattr(model, f"{attr_name}_id", tok_id)
 
     logging.info("Token ids assigned to tokenizer and model.")
+
 
 def setup_latent_tokens(model, tokenizer, is_latent_reasoner: bool = False):
     """Setup special tokens for latent reasoning."""
@@ -86,6 +88,7 @@ def setup_latent_tokens(model, tokenizer, is_latent_reasoner: bool = False):
 
     return model, tokenizer
 
+
 def is_rank_zero():
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank() == 0
@@ -97,3 +100,8 @@ def is_rank_zero():
         except ValueError:
             pass
     return True
+
+
+def count_max_total_latents(add_num_latents_per_update: int, update_cycle: int, max_num_latents: int):
+    """Count the maximum total number of latents in the update cycle."""
+    return min(add_num_latents_per_update * update_cycle, max_num_latents)

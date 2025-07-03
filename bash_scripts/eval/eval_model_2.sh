@@ -1,7 +1,8 @@
 #!/bin/bash
-#SBATCH -p lrz-hgx-h100-94x4
-#SBATCH --gres=gpu:1
-#SBATCH --time=0-03:00:00
+#SBATCH -p mcml-dgx-a100-40x8
+#SBATCH -q mcml
+#SBATCH --gres=gpu:4
+#SBATCH --time=0-00:30:00
 #SBATCH -o bash_outputs/output_eval_2.log
 #SBATCH -e bash_outputs/error_eval_2.log
 
@@ -13,7 +14,8 @@ export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 CONFIG_PATH="src/configs/latent_reasoner_sft_eval_gsm.yaml"
 
 echo "Starting evaluation"
-CUDA_VISIBLE_DEVICES=0 python src/eval/eval.py \
-    --config $CONFIG_PATH
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --standalone --nproc_per_node=4 \
+    src/eval/eval.py --config_path $CONFIG_PATH
 
 echo "Evaluation complete!"

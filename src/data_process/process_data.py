@@ -1,13 +1,15 @@
+import logging
 from typing import Optional
 import re
 import torch
 import math
 from datasets import load_dataset, DatasetDict
+
 from prompts.prompts import (
     SYSTEM_PROMPT, 
     SYSTEM_PROMPT_LATENT_REASONER
 )
-import logging
+from src.train.utils import count_max_total_latents
 
 
 def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
@@ -98,13 +100,14 @@ def _metamathqa_to_sft(
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Calculate the number of latent steps
-        num_latent_steps = min(
-            add_num_latents_per_update * update_cycle, 
-            math.ceil(len(think_ids) // num_tokens_per_latent), 
-            max_num_latents)
+        max_total_latents_in_update_cycle = count_max_total_latents(add_num_latents_per_update, update_cycle, max_num_latents)
+        num_latent_steps_in_think_block = min(
+            max_total_latents_in_update_cycle, 
+            math.ceil(len(think_ids) // num_tokens_per_latent)
+        )
         # Reduce the tokens in the think block
-        if num_latent_steps < max_num_latents:
-            think_ids = think_ids[num_tokens_per_latent * num_latent_steps:]
+        if num_latent_steps_in_think_block < max_num_latents:
+            think_ids = think_ids[num_tokens_per_latent * num_latent_steps_in_think_block:]
         else:
             think_ids = []
         # Add start think and end think tokens in the think ids
@@ -117,11 +120,11 @@ def _metamathqa_to_sft(
 
         # Create the input_ids
         input_ids = prefix_ids + \
-            [start_latent_id] + [latent_id] * num_latent_steps + [end_latent_id] + \
+            [start_latent_id] + [latent_id] * num_latent_steps_in_think_block + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
         # Mask prefix and latent tokens but not the think/answer sections
         labels = [-100] * len(prefix_ids) + \
-            [start_latent_id] + [-100] * num_latent_steps + [end_latent_id] + \
+            [start_latent_id] + [-100] * num_latent_steps_in_think_block + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
     else:
         # convert the think text to ids after adding the start and end think tokens

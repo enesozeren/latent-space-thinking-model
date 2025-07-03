@@ -301,7 +301,6 @@ def eval_model(config_path):
         logger.info(f"Example prompt:\n{prompts[0]}")
 
     # ── generate answers ────────────────────────────────────────────────────
-    start = time.time()
     responses_multi = generate_responses_multi(
         cfg=cfg,
         model=model, 
