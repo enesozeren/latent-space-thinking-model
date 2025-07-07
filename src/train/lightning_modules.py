@@ -185,6 +185,7 @@ class SFTDataModule(L.LightningDataModule):
         self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
         # If latent reasoning is enabled, prepare the dataset with latent tokens
         if self.is_latent_reasoner:
+            self.start_num_latents = self.config["training"]["start_num_latents"]
             self.max_num_latents = self.config["training"]["max_num_latents"]
             self.num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
             self.add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
@@ -207,6 +208,7 @@ class SFTDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer, 
             seed=self.config["training"]["seed"],
             is_latent_reasoner=self.is_latent_reasoner,
+            start_num_latents=self.start_num_latents,
             num_tokens_per_latent=self.num_tokens_per_latent,
             add_num_latents_per_update=self.add_num_latents_per_update,
             update_cycle=update_cycle,
@@ -267,11 +269,13 @@ class GenerateSamplesCallback(L.Callback):
     """
     def __init__(self, num_samples: int, 
                  is_latent_reasoner: bool,
+                 start_num_latents: Optional[int] = None,
                  add_num_latents_per_update: Optional[int] = None,
                  max_num_latents: Optional[int] = None):
         super().__init__()
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
+        self.start_num_latents = start_num_latents
         self.add_num_latents_per_update = add_num_latents_per_update
         self.max_num_latents = max_num_latents
 
@@ -288,6 +292,7 @@ class GenerateSamplesCallback(L.Callback):
         update_cycle = trainer.current_epoch + 1
         if self.is_latent_reasoner:
             total_latents = count_max_total_latents(
+                start_num_latents=self.start_num_latents,
                 add_num_latents_per_update=self.add_num_latents_per_update,
                 update_cycle=update_cycle,
                 max_num_latents=self.max_num_latents
@@ -392,8 +397,9 @@ class DatasetRefreshCallback(L.Callback):
     – refresh the datamodule's preprocessing every epoch
     – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
-    def __init__(self, add_num_latents_per_update: int, num_tokens_per_latent: int, max_num_latents: int):
+    def __init__(self, start_num_latents: Optional[int], add_num_latents_per_update: int, num_tokens_per_latent: int, max_num_latents: int):
         super().__init__()
+        self.start_num_latents = start_num_latents
         self.add_num_latents_per_update = add_num_latents_per_update
         self.num_tokens_per_latent = num_tokens_per_latent
         self.max_num_latents = max_num_latents
@@ -448,6 +454,7 @@ class DatasetRefreshCallback(L.Callback):
         logging.info(f"Current epoch which ends: {current_epoch}") 
         next_epoch = trainer.current_epoch + 2
         total_latents_this_epoch = count_max_total_latents(
+            self.start_num_latents,
             add_num_latents_per_update=self.add_num_latents_per_update,
             update_cycle=current_epoch,
             max_num_latents=self.max_num_latents

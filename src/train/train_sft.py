@@ -66,6 +66,7 @@ def train_model(config_path: str) -> None:
         logging.info("Latent Reasoning enabled, adding dataset refresh callback.")
         # Dataset refresh callback
         dataset_refresh_cb = DatasetRefreshCallback(
+            start_num_latents = cfg["training"]["start_num_latents"],
             add_num_latents_per_update = cfg["training"]["add_num_latents_per_update"],
             num_tokens_per_latent = cfg["training"]["num_tokens_per_latent"],
             max_num_latents = cfg["training"]["max_num_latents"]
@@ -75,7 +76,8 @@ def train_model(config_path: str) -> None:
     # Qualitative evaluation callback
     sample_cb = GenerateSamplesCallback(
         num_samples=2,
-        is_latent_reasoner=cfg["model"]["is_latent_reasoner"],
+        is_latent_reasoner=cfg.get("model", {}).get("is_latent_reasoner", False),
+        start_num_latents=cfg.get("training", {}).get("start_num_latents"),
         add_num_latents_per_update=cfg.get("training", {}).get("add_num_latents_per_update"),
         max_num_latents=cfg.get("training", {}).get("max_num_latents")
     )

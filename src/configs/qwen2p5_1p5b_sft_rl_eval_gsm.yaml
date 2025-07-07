@@ -1,0 +1,27 @@
+# Model configuration
+model:
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft_rl/20250706_103109/checkpoint-152"
+  is_latent_reasoner: False  # Set to true for latent reasoner evaluation
+
+# Dataset configuration
+dataset:
+  dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
+  split: "test"            # choices: ["test", "train"]
+  num_examples: null       # null means use all examples, or specify a number
+
+# Generation parameters
+generation:
+  temperature: 0.2
+  top_p: 0.95
+  max_length: 2048
+  batch_size: 8
+  
+# Output configuration
+logs:
+  output_dir: "outputs"
+  wandb_project: "latent_reasoner_eval"
+  wandb_run_name: qwen_1p5b_sft_rl_gsm8k
+  no_wandb: false
+
+# Reproducibility
+seed: 42

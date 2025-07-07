@@ -29,23 +29,23 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     }
 
 
-def prepare_dataset_rl(config: dict, is_latent_reasoner: bool) -> DatasetDict:
+def prepare_dataset_rl(config: dict, is_latent_reasoner: bool = False) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
     raw_ds = load_dataset(config["dataset"]["name"], "extended", split="train")
     # select the last num_examples_from_last examples
-    raw_ds = raw_ds.select(range(len(raw_ds["train"]) - config["dataset"]["num_examples_from_last"], len(raw_ds["train"])))
+    raw_ds = raw_ds.select(range(config["dataset"]["num_examples"]))
     
     # Since there's only a train split in DeepMath-103K, create train/val splits
-    split_ds = raw_ds["train"].train_test_split(test_size=0.025, seed=config["training"]["seed"])
+    split_ds = raw_ds.train_test_split(test_size=0.025, seed=config["training"]["seed"])
     
     processed = {
         "train": split_ds["train"].map(
             lambda x: _openr1_to_grpo(x, is_latent_reasoner), 
-            remove_columns=raw_ds["train"].column_names
+            remove_columns=raw_ds.column_names
         ),
         "validation": split_ds["test"].map(
             lambda x: _openr1_to_grpo(x, is_latent_reasoner), 
-            remove_columns=raw_ds["train"].column_names
+            remove_columns=raw_ds.column_names
         )
     }
     
@@ -63,6 +63,7 @@ def _metamathqa_to_sft(
     example, 
     tokenizer, 
     is_latent_reasoner: bool,
+    start_num_latents: Optional[int] = None, 
     num_tokens_per_latent: Optional[int] = None, 
     add_num_latents_per_update: Optional[int] = None,
     update_cycle: int = 0,
@@ -100,7 +101,7 @@ def _metamathqa_to_sft(
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Calculate the number of latent steps
-        max_total_latents_in_update_cycle = count_max_total_latents(add_num_latents_per_update, update_cycle, max_num_latents)
+        max_total_latents_in_update_cycle = count_max_total_latents(start_num_latents, add_num_latents_per_update, update_cycle, max_num_latents)
         num_latent_steps_in_think_block = min(
             max_total_latents_in_update_cycle, 
             math.ceil(len(think_ids) // num_tokens_per_latent)
@@ -147,6 +148,7 @@ def _metamathqa_to_sft(
 
 def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int, 
                         is_latent_reasoner: bool,
+                        start_num_latents: Optional[int] = None, 
                         num_tokens_per_latent: Optional[int] = None, 
                         add_num_latents_per_update: Optional[int] = None,
                         update_cycle: int = 0,
@@ -168,6 +170,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
+                "start_num_latents": start_num_latents,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
                 "update_cycle": update_cycle,
@@ -180,6 +183,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
+                "start_num_latents": start_num_latents,
                 "num_tokens_per_latent": num_tokens_per_latent,
                 "add_num_latents_per_update": add_num_latents_per_update,
                 "update_cycle": update_cycle,

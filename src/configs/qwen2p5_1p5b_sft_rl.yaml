@@ -1,10 +1,11 @@
 model:
   model_name: "qwen_1p5b"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250609_084115/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250702_145220/hf_checkpoints/step=0796"
   is_latent_reasoner: False
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
+  num_examples: 5000
 
 training:
   seed: 42
@@ -13,7 +14,7 @@ training:
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 16
   lr_scheduler_type: "cosine_with_min_lr"
-  learning_rate: 1.0e-6
+  learning_rate: 5.0e-6
   lr_scheduler_kwargs: 
     min_lr_rate: 0.1
   num_train_epochs: 1

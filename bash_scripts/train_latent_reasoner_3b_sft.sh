@@ -7,7 +7,7 @@
 
 # Activate environment & set PYTHONPATH
 source activate latr_2
-export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/other-repos/latent-reasoner
+export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config path
 CONFIG_PATH="src/configs/latent_reasoner_3b_sft.yaml"

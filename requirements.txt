@@ -2,7 +2,7 @@ transformers==4.51.3
 datasets==3.5.0
 numpy==2.2.4
 torch==2.6.0
-# trl==0.17.0
+# trl==0.18.0
 -e /dss/dsshome1/0B/ra32qov2/other-repos/trl
 peft==0.15.2
 accelerate==1.6.0
