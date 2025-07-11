@@ -246,7 +246,7 @@ class SFTDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
-            num_workers=4,
+            num_workers=8,
             pin_memory=True
         )
 
@@ -257,7 +257,7 @@ class SFTDataModule(L.LightningDataModule):
             batch_size=self.eval_batch_size,
             shuffle=False,
             collate_fn=collate_fn,
-            num_workers=4,
+            num_workers=8,
             pin_memory=True
         )
 
@@ -352,14 +352,14 @@ class GenerateSamplesCallback(L.Callback):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     num_latent_steps=total_latents,
-                    max_new_tokens=2048,
+                    max_new_tokens=1024,
                     do_sample=False
                 )
             else:
                 generated_ids = pl_module.model.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    max_new_tokens=2048,
+                    max_new_tokens=1024,
                     do_sample=False
                 )
                 # For non-latent reasoner, we need to remove the prompt from generated_ids

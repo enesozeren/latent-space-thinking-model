@@ -1,8 +1,8 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250703_085301/hf_checkpoints/epoch=05"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250703_085301/hf_checkpoints/epoch=00"
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
-  num_latent_steps: 30  # Number of latent steps
+  num_latent_steps: 5  # Number of latent steps
 
 # Dataset configuration
 dataset:
@@ -21,7 +21,7 @@ generation:
 logs:
   output_dir: "outputs"
   wandb_project: "latent_reasoner_eval"
-  wandb_run_name: latent_reasoner_1p5b_sft-epoch05_30LatentSteps_gsm8k_eval
+  wandb_run_name: latent_reasoner_1p5b_sft-epoch00_5LatentSteps_gsm8k_eval
   no_wandb: false
 
 # Reproducibility
