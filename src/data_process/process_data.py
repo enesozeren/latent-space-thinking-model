@@ -4,6 +4,7 @@ import re
 import torch
 import math
 from datasets import load_dataset, DatasetDict
+import random
 
 from prompts.prompts import (
     SYSTEM_PROMPT, 
@@ -98,6 +99,9 @@ def _metamathqa_to_sft(
     if is_latent_reasoner:
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
+        # Random Removal Smoothing (Deng et al., 2024) - We add one more latent for 2% of the time
+        if random.randint(1, 100) > 98:
+            total_num_latents = total_num_latents + 1
         # Calculate the number of latent steps for each example
         num_latent_steps_in_think_block = min(
             total_num_latents, 

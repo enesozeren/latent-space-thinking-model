@@ -282,7 +282,8 @@ class GenerateSamplesCallback(L.Callback):
         current_batch = trainer.fit_loop.batch_idx
         current_epoch = trainer.current_epoch
         
-        logging.info(f"Current Batch: {current_batch}, Current Epoch: {current_epoch}")
+        logging.info("Generate Samples Callback Triggered")
+        logging.info(f"Current Epoch: {current_epoch} & Current Batch: {current_batch}")
         logging.info(f"Num Batches This Epoch: {num_batches_this_epoch}")
         if self.is_latent_reasoner:
             total_latents = count_max_total_latents(
@@ -383,8 +384,8 @@ class GenerateSamplesCallback(L.Callback):
                 clean_up_tokenization_spaces=True,
             )
 
-            logging.info(f"[Batch {current_batch}] [VAL Question {n}] {question}")
-            logging.info(f"[Batch {current_batch}] [VAL Answer   {n}] {answer}")
+            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Question {n}] {question}")
+            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Answer   {n}] {answer}")
 
 
 class DatasetRefreshCallback(L.Callback):
@@ -455,6 +456,7 @@ class DatasetRefreshCallback(L.Callback):
         # Update the dataset if it is time
         if (current_batch) % interval_to_add_latent == 0:
             # Get the number of latent steps in this epoch
+            logging.info("Dataset Refresh Callback Triggered")
             logging.info(f"Current epoch: {current_epoch}")
             logging.info(f"Current batch: {current_batch}")
             logging.info(f"Total numb of batches in this epoch: {num_batches_this_epoch}")
