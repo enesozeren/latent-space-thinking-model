@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 import os
 import shutil
 
+import math
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
@@ -182,25 +183,14 @@ class SFTDataModule(L.LightningDataModule):
         self.batch_size = config["training"]["per_device_train_batch_size"]
         self.eval_batch_size = config["training"]["per_device_eval_batch_size"]
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
-        self.current_epoch_num = 0  # Track current epoch for dataset preprocessing
-        # If latent reasoning is enabled, prepare the dataset with latent tokens
-        if self.is_latent_reasoner:
-            self.start_num_latents = self.config["training"]["start_num_latents"]
-            self.max_num_latents = self.config["training"]["max_num_latents"]
-            self.num_tokens_per_latent = self.config["training"]["num_tokens_per_latent"]
-            self.add_num_latents_per_update = self.config["training"]["add_num_latents_per_update"]
-            assert self.num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
-            assert self.add_num_latents_per_update > 0, "add_num_latents_per_update must be greater than 0."
-        else:
-            # For standard SFT, no latent steps are used
-            self.max_num_latents = None
-            self.num_tokens_per_latent = None
-            self.add_num_latents_per_update = None
 
-    def setup(self, stage: str, next_epoch: int = 1):
+        self.max_num_latents = config.get("training", {}).get("max_num_latents", 0)
+        self.num_tokens_per_latent = config.get("training", {}).get("num_tokens_per_latent", 0)
+        if self.is_latent_reasoner:
+            assert self.num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
+
+    def setup(self, stage: str, total_num_latents: int = 1):
         """Setup datasets."""
-        # Update current epoch number
-        update_cycle = next_epoch
         # Prepare the dataset
         data = prepare_dataset_sft(
             dataset_name=self.config["dataset"]["name"], 
@@ -208,11 +198,9 @@ class SFTDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer, 
             seed=self.config["training"]["seed"],
             is_latent_reasoner=self.is_latent_reasoner,
-            start_num_latents=self.start_num_latents,
             num_tokens_per_latent=self.num_tokens_per_latent,
-            add_num_latents_per_update=self.add_num_latents_per_update,
-            update_cycle=update_cycle,
-            max_num_latents=self.max_num_latents
+            max_num_latents=self.max_num_latents,
+            total_num_latents=total_num_latents
         )
 
         self.train_dataset = SFTDataset(data["train"])
@@ -229,15 +217,15 @@ class SFTDataModule(L.LightningDataModule):
                 clean_up_tokenization_spaces=True,
             )
 
-            print(f"\n=== SFT Data Check (Update Cycle: {update_cycle}) ===")
+            print(f"\n=== SFT Data Check (Total Numb of Latents: {total_num_latents}) ===")
             print("Prompt:\n", decoded_prompt)
             torch.set_printoptions(threshold=float('inf'))
             print("\nLabel IDs:", sample["labels"])
             print("====================================\n")        
 
-    def update_dataset(self, next_epoch: int):
+    def update_dataset(self, total_num_latents: int):
         """Re-setup datasets for a new epoch with different preprocessing."""
-        self.setup("fit", next_epoch)
+        self.setup("fit", total_num_latents)
 
     def train_dataloader(self):
         """Return training dataloader."""
@@ -270,13 +258,13 @@ class GenerateSamplesCallback(L.Callback):
     def __init__(self, num_samples: int, 
                  is_latent_reasoner: bool,
                  start_num_latents: Optional[int] = None,
-                 add_num_latents_per_update: Optional[int] = None,
+                 add_latents_delta: Optional[int] = None,
                  max_num_latents: Optional[int] = None):
         super().__init__()
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
         self.start_num_latents = start_num_latents
-        self.add_num_latents_per_update = add_num_latents_per_update
+        self.add_latents_delta = add_latents_delta
         self.max_num_latents = max_num_latents
 
     @torch.inference_mode()
@@ -285,18 +273,27 @@ class GenerateSamplesCallback(L.Callback):
         trainer: L.Trainer,
         pl_module: L.LightningModule
     ):
+        num_batches_this_epoch = trainer.num_training_batches 
+
         # Log for the main process only
-        if trainer.global_rank != 0:
+        if trainer.global_rank != 0 or math.isinf(num_batches_this_epoch):
             return
+
+        current_batch = trainer.fit_loop.batch_idx
+        current_epoch = trainer.current_epoch
         
-        update_cycle = trainer.current_epoch + 1
+        logging.info(f"Current Batch: {current_batch}, Current Epoch: {current_epoch}")
+        logging.info(f"Num Batches This Epoch: {num_batches_this_epoch}")
         if self.is_latent_reasoner:
             total_latents = count_max_total_latents(
                 start_num_latents=self.start_num_latents,
-                add_num_latents_per_update=self.add_num_latents_per_update,
-                update_cycle=update_cycle,
+                add_latents_delta=self.add_latents_delta,
+                current_epoch=current_epoch,
+                current_batch=current_batch,
+                num_batches_this_epoch=num_batches_this_epoch,
                 max_num_latents=self.max_num_latents
             )
+            logging.info(f"Total Latents: {total_latents}")
         
         pl_module.eval()
 
@@ -386,9 +383,8 @@ class GenerateSamplesCallback(L.Callback):
                 clean_up_tokenization_spaces=True,
             )
 
-            step = trainer.global_step
-            logging.info(f"[step {step}] [VAL Question {n}] {question}")
-            logging.info(f"[step {step}] [VAL Answer   {n}] {answer}")
+            logging.info(f"[Batch {current_batch}] [VAL Question {n}] {question}")
+            logging.info(f"[Batch {current_batch}] [VAL Answer   {n}] {answer}")
 
 
 class DatasetRefreshCallback(L.Callback):
@@ -397,10 +393,10 @@ class DatasetRefreshCallback(L.Callback):
     – refresh the datamodule's preprocessing every epoch
     – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
-    def __init__(self, start_num_latents: Optional[int], add_num_latents_per_update: int, num_tokens_per_latent: int, max_num_latents: int):
+    def __init__(self, start_num_latents: Optional[int], add_latents_delta: int, num_tokens_per_latent: int, max_num_latents: int):
         super().__init__()
         self.start_num_latents = start_num_latents
-        self.add_num_latents_per_update = add_num_latents_per_update
+        self.add_latents_delta = add_latents_delta
         self.num_tokens_per_latent = num_tokens_per_latent
         self.max_num_latents = max_num_latents
 
@@ -443,48 +439,61 @@ class DatasetRefreshCallback(L.Callback):
             scheduler.cooldown_counter = 0
 
     #  Main hook
-    def on_train_epoch_end(
+    def on_train_batch_end(
         self,
         trainer: L.Trainer,
         pl_module: L.LightningModule,
+        outputs, batch, batch_idx,
         *args, **kwargs,
     ):
-        # 1. Work out how many latents we had for the current epoch
-        current_epoch = trainer.current_epoch + 1 # since epoch starts with 0
-        logging.info(f"Current epoch which ends: {current_epoch}") 
-        next_epoch = trainer.current_epoch + 2
-        total_latents_this_epoch = count_max_total_latents(
-            self.start_num_latents,
-            add_num_latents_per_update=self.add_num_latents_per_update,
-            update_cycle=current_epoch,
-            max_num_latents=self.max_num_latents
-        )
-        pl_module.log(
-            "step/total_latents",
-            total_latents_this_epoch,
-            on_epoch=True,
-            on_step=False,
-        )
 
-        # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
-        trainer.datamodule.update_dataset(next_epoch=next_epoch)
+        current_batch = batch_idx
+        current_epoch = trainer.current_epoch
+        num_batches_this_epoch = trainer.num_training_batches
+        interval_to_add_latent = num_batches_this_epoch // self.add_latents_delta
 
-        # 3. Reset every optimiser
-        for opt in trainer.optimizers:
-            self._reset_optimizer_state(opt)
+        # Update the dataset if it is time
+        if (current_batch) % interval_to_add_latent == 0:
+            # Get the number of latent steps in this epoch
+            logging.info(f"Current epoch: {current_epoch}")
+            logging.info(f"Current batch: {current_batch}")
+            logging.info(f"Total numb of batches in this epoch: {num_batches_this_epoch}")
+            total_num_latents = count_max_total_latents(
+                self.start_num_latents,
+                add_latents_delta=self.add_latents_delta,
+                current_epoch=current_epoch,
+                current_batch=current_batch,
+                num_batches_this_epoch=num_batches_this_epoch,
+                max_num_latents=self.max_num_latents
+            )
+            logging.info(f"Numb of latent steps in this cycle: {total_num_latents}")
 
-        # 4. Reset every LR scheduler
-        sched_cfgs = getattr(trainer, "lr_schedulers",
-                             getattr(trainer, "lr_scheduler_configs", []))
-        for cfg in sched_cfgs:
-            # cfg is a dict in new PL, an AttrDict-like object in old PL
-            scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
-            self._reset_scheduler_state(scheduler)
+            pl_module.log(
+                "step/total_latents",
+                total_num_latents,
+                on_epoch=False,
+                on_step=True,
+            )
 
-        logging.info(f"Dataset + optimiser/scheduler reset (cycle {current_epoch}).")
+            # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
+            trainer.datamodule.update_dataset(total_num_latents=total_num_latents)
 
-        # 5. Make sure every rank arrives here before training resumes
-        trainer.strategy.barrier()
+            # 3. Reset every optimiser
+            for opt in trainer.optimizers:
+                self._reset_optimizer_state(opt)
+
+            # 4. Reset every LR scheduler
+            sched_cfgs = getattr(trainer, "lr_schedulers",
+                                getattr(trainer, "lr_scheduler_configs", []))
+            for cfg in sched_cfgs:
+                # cfg is a dict in new PL, an AttrDict-like object in old PL
+                scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
+                self._reset_scheduler_state(scheduler)
+
+            logging.info(f"Dataset + optimiser/scheduler reset at Epoch: {current_epoch} and Batch: {current_batch}).")
+
+            # 5. Make sure every rank arrives here before training resumes
+            trainer.strategy.barrier()
 
 
 class HFModelCheckpoint(ModelCheckpoint):

@@ -102,6 +102,22 @@ def is_rank_zero():
     return True
 
 
-def count_max_total_latents(start_num_latents, add_num_latents_per_update: int, update_cycle: int, max_num_latents: int):
+def count_max_total_latents(
+    start_num_latents, add_latents_delta: int, current_epoch: int, 
+    current_batch: int, num_batches_this_epoch: int, max_num_latents: int
+    ):
     """Count the maximum total number of latents in the update cycle."""
-    return min(start_num_latents + add_num_latents_per_update * update_cycle, max_num_latents)
+    # Example case
+    # start_num_latents = 0
+    # current_epoch = 0
+    # num_batches_this_epoch = 30
+    # add_latents_delta = 4
+    # 30 // 4 = 7
+    # 0-6: 1, 7-13: 2, 14-20: 3, 21-27: 4, 28-30: 5
+    numb_of_latents_from_last_epoch = current_epoch * add_latents_delta # since epoch starts with 0
+    interval_to_add_latent = num_batches_this_epoch // add_latents_delta
+    numb_of_latents_to_add = current_batch // interval_to_add_latent + 1
+    total_latents = start_num_latents + numb_of_latents_from_last_epoch + numb_of_latents_to_add
+    total_latents = min(total_latents, max_num_latents)
+
+    return total_latents

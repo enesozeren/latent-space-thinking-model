@@ -1,19 +1,19 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250703_085301/hf_checkpoints/epoch=06"
+  base_model_name_or_path: "Qwen/Qwen2.5-0.5B"
   is_latent_reasoner: True
 
 dataset:
   name: "meta-math/MetaMathQA"
-  num_examples: 150000
+  num_examples: 1000
 
 training:
   seed: 42
   start_num_latents: 0
-  add_num_latents_per_update: 5
+  add_latents_delta: 6
   num_tokens_per_latent: 8
   max_num_latents: 30
-  output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft_only_latent"
+  output_dir: "outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
   gradient_accumulation_steps: 128
@@ -22,9 +22,9 @@ training:
   lr_scheduler_step_size: 100
   num_train_epochs: 2
   logging_steps: 1
-  eval_steps: 3072
+  eval_steps: 64
   weight_decay: 0.01
 
 wandb:
   project: latent_reasoner_sft
-  run_name: latent_reasoner_1p5b_sft_only_latent
+  run_name: latent_reasoner_1p5b_sft

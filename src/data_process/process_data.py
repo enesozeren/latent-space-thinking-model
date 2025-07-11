@@ -63,11 +63,9 @@ def _metamathqa_to_sft(
     example, 
     tokenizer, 
     is_latent_reasoner: bool,
-    start_num_latents: Optional[int] = None, 
-    num_tokens_per_latent: Optional[int] = None, 
-    add_num_latents_per_update: Optional[int] = None,
-    update_cycle: int = 0,
-    max_num_latents: int = 100) -> dict:
+    num_tokens_per_latent: int,
+    max_num_latents: int,
+    total_num_latents: int) -> dict:
     """Process a single meta-math/MetaMathQA example into SFT format with explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
@@ -91,19 +89,18 @@ def _metamathqa_to_sft(
     prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
-    if num_tokens_per_latent and add_num_latents_per_update:
+    if is_latent_reasoner:
         start_latent_id = tokenizer.start_latent_token_id
         end_latent_id = tokenizer.end_latent_token_id
         latent_id = tokenizer.latent_token_id
 
     # latent-token replacement logic
-    if num_tokens_per_latent and add_num_latents_per_update and update_cycle > 0:
+    if is_latent_reasoner:
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
-        # Calculate the number of latent steps
-        max_total_latents_in_update_cycle = count_max_total_latents(start_num_latents, add_num_latents_per_update, update_cycle, max_num_latents)
+        # Calculate the number of latent steps for each example
         num_latent_steps_in_think_block = min(
-            max_total_latents_in_update_cycle, 
+            total_num_latents, 
             math.ceil(len(think_ids) // num_tokens_per_latent)
         )
         # Reduce the tokens in the think block
@@ -148,11 +145,9 @@ def _metamathqa_to_sft(
 
 def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int, 
                         is_latent_reasoner: bool,
-                        start_num_latents: Optional[int] = None, 
-                        num_tokens_per_latent: Optional[int] = None, 
-                        add_num_latents_per_update: Optional[int] = None,
-                        update_cycle: int = 0,
-                        max_num_latents: int = 100) -> DatasetDict:
+                        num_tokens_per_latent: int,
+                        max_num_latents: int,
+                        total_num_latents: int) -> DatasetDict:
     """Convert meta-math/MetaMathQA into latent-reasoning SFT format using the provided tokenizer.
     """
     logger = logging.getLogger(__name__)
@@ -170,11 +165,9 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
-                "start_num_latents": start_num_latents,
                 "num_tokens_per_latent": num_tokens_per_latent,
-                "add_num_latents_per_update": add_num_latents_per_update,
-                "update_cycle": update_cycle,
-                "max_num_latents": max_num_latents
+                "max_num_latents": max_num_latents,
+                "total_num_latents": total_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
@@ -183,11 +176,9 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
-                "start_num_latents": start_num_latents,
                 "num_tokens_per_latent": num_tokens_per_latent,
-                "add_num_latents_per_update": add_num_latents_per_update,
-                "update_cycle": update_cycle,
-                "max_num_latents": max_num_latents
+                "max_num_latents": max_num_latents,
+                "total_num_latents": total_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
@@ -203,13 +194,8 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
 
 
     # Log the dataset split sizes
-    logger.info(f"Update Cycle: {update_cycle}")    
     logger.info("SFT Dataset split sizes:")
     logger.info(f"  Train: {len(processed['train'])} examples")
     logger.info(f"  Validation: {len(processed['validation'])} examples")
-    if num_tokens_per_latent is not None:
-        logger.info(f"  Number of tokens per latent step: {num_tokens_per_latent}")
-    else:
-        logger.info("  No latent tokens added (num_tokens_per_latent is None)")
 
     return DatasetDict(processed)
