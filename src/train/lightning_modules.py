@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 import os
 import shutil
 
+import numpy as np
 import math
 import torch
 from torch.utils.data import Dataset
@@ -16,6 +17,7 @@ from src.data_process.process_data import prepare_dataset_sft
 from src.latent_reasoner.model import LatentReasoner
 from src.train.utils import is_rank_zero, setup_latent_tokens
 from src.train.utils import count_max_total_latents
+from src.eval.eval import extract_answer_from_response
 
 class ModelLightningModule(L.LightningModule):
     """PyTorch Lightning module for training a Language Model with SFT."""
@@ -309,6 +311,11 @@ class GenerateSamplesCallback(L.Callback):
         # Always take the first `num_samples` examples (or fewer if the dataset is smaller)
         indices = list(range(min(self.num_samples, len(val_dataset))))
 
+        # Track accuracy and length for samples
+        correct_predictions = 0
+        total_accuracy_samples = 0
+        answer_token_length_list = []
+
         for n, idx in enumerate(indices, start=1):
             sample = val_dataset[idx]
 
@@ -386,9 +393,42 @@ class GenerateSamplesCallback(L.Callback):
                 clean_up_tokenization_spaces=True,
             )
 
+            answer_token_length_list.append(len(seq))
+
+            # Calculate accuracy for all samples
+            # Extract ground truth answer content from the original full text answer part
+            gt_answer_content = extract_answer_from_response(full_text[prompt_finish_idx:])
+            
+            # Extract predicted answer content from the generated answer
+            pred_answer_content = extract_answer_from_response(answer)
+            
+            # Check if both answers were found and match exactly
+            # Empty string means no answer was found
+            is_correct = (gt_answer_content != "" and 
+                         pred_answer_content != "" and 
+                         gt_answer_content == pred_answer_content)
+            
+            if is_correct:
+                correct_predictions += 1
+                
+            total_accuracy_samples += 1
+            
+            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Accuracy {n}] \Ground Truth: '{gt_answer_content}', Predicted: '{pred_answer_content}', Correct: {is_correct}")
             logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Question {n}] {question}")
             logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Answer   {n}] {answer}")
+            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Answer Length {n}] {len(seq)}")
 
+        # Calculate and log final accuracy
+        accuracy = correct_predictions / total_accuracy_samples
+        logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL ACCURACY] {correct_predictions}/{total_accuracy_samples} = {accuracy:.4f}")
+        # Avg token lenght
+        avg_num_tokens = np.mean(answer_token_length_list)
+        logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Avg Answer Length] {avg_num_tokens}")
+
+        # Log to wandb
+        pl_module.log("step/val_accuracy", accuracy, on_epoch=True)
+        pl_module.log("step/val_answer_token_len", avg_num_tokens, on_epoch=True)
+        
 
 class DatasetRefreshCallback(L.Callback):
     """
@@ -512,18 +552,19 @@ class HFModelCheckpoint(ModelCheckpoint):
         if is_latent_reasoner:
             super().__init__(
                 dirpath=ckpt_root,
-                filename="{epoch:02d}",     # epoch00/, epoch01/, …
+                filename="{epoch:02d}", # epoch00/, epoch01/, …
                 every_n_epochs=1,
-                save_top_k=-1,                   # keep all epochs
+                save_top_k=-1, # keep all epochs
+                save_on_train_epoch_end=True, # Save at end of training epoch, not validation
                 **kwargs,
             )
         else:
             super().__init__(
                 dirpath=ckpt_root,
-                filename="{step:04d}",       # step0001/, …
+                filename="{step:04d}", # step0001/, …
                 monitor="val_loss",
                 mode="min",
-                save_top_k=1,                    # keep only the best
+                save_top_k=1, # keep only the best
                 **kwargs,
             )
 

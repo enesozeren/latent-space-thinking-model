@@ -166,7 +166,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
     processed = {
         "train": split_ds["train"].map(
             _metamathqa_to_sft,
-            num_proc=4,
+            num_proc=8,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
@@ -178,7 +178,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
         ),
         "validation": split_ds["test"].map(
             _metamathqa_to_sft,
-            num_proc=4,        
+            num_proc=8,        
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,

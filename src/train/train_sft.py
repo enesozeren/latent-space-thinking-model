@@ -75,7 +75,7 @@ def train_model(config_path: str) -> None:
 
     # Qualitative evaluation callback
     sample_cb = GenerateSamplesCallback(
-        num_samples=2,
+        num_samples=4,
         is_latent_reasoner=cfg.get("model", {}).get("is_latent_reasoner", False),
         start_num_latents=cfg.get("training", {}).get("start_num_latents"),
         add_latents_delta=cfg.get("training", {}).get("add_latents_delta"),
