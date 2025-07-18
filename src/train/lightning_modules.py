@@ -234,8 +234,9 @@ class SFTDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
-            num_workers=8,
-            pin_memory=True
+            num_workers=32,
+            pin_memory=True,
+            persistent_workers=True
         )
 
     def val_dataloader(self):
@@ -245,8 +246,9 @@ class SFTDataModule(L.LightningDataModule):
             batch_size=self.eval_batch_size,
             shuffle=False,
             collate_fn=collate_fn,
-            num_workers=8,
-            pin_memory=True
+            num_workers=32,
+            pin_memory=True,
+            persistent_workers=True
         )
 
 

@@ -5,7 +5,7 @@ model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
-  num_examples: 5000
+  num_examples: 10000
 
 training:
   seed: 42
@@ -19,8 +19,8 @@ training:
     min_lr_rate: 0.1
   num_train_epochs: 1
   logging_steps: 1
-  eval_steps: 50
-  save_steps: 50
+  eval_steps: 100
+  save_steps: 100
   warmup_steps: 10
   weight_decay: 0.01
 
@@ -32,7 +32,7 @@ grpo:
   
   # Generation parameters
   num_generations: 8  # Number of answers to generate for each input
-  max_completion_length: 1024  # Maximum length of the generated answer
+  max_completion_length: 1536  # Maximum length of the generated answer
   temperature: 0.7
 
 wandb:

@@ -221,7 +221,7 @@ def eval_model(config_path):
 
     # dataset
     dataset = prepare_dataset(cfg["dataset"]["dataset"], cfg["dataset"]["split"], cfg["dataset"]["num_examples"])
-    logger.info(f"Evaluating {cfg["model"]["base_model_name_or_path"]} on {cfg["dataset"]["dataset"]}")
+    logger.info(f"Evaluating {cfg['model']['base_model_name_or_path']} on {cfg['dataset']['dataset']}")
 
     # Initialize model
     if cfg["model"]["is_latent_reasoner"]:

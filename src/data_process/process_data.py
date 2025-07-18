@@ -12,6 +12,7 @@ from prompts.prompts import (
 )
 from src.train.utils import count_max_total_latents
 
+ANSWER_PATTERN = re.compile(r'The answer is:\s*([^\n\r#]+)', flags=re.IGNORECASE)
 
 def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """Convert an OpenR1-Math-220k row → GRPO expected format.
@@ -36,7 +37,6 @@ def prepare_dataset_rl(config: dict, is_latent_reasoner: bool = False) -> Datase
     # select the last num_examples_from_last examples
     raw_ds = raw_ds.select(range(config["dataset"]["num_examples"]))
     
-    # Since there's only a train split in DeepMath-103K, create train/val splits
     split_ds = raw_ds.train_test_split(test_size=0.025, seed=config["training"]["seed"])
     
     processed = {
@@ -75,7 +75,7 @@ def _metamathqa_to_sft(
     think_text = example["response"].strip()
     # parse the answer from the think text in meta-math/MetaMathQA dataset
     # response always contains the answer is at the end
-    m = re.search(r'The answer is:\s*([^\n\r#]+)', think_text, flags=re.IGNORECASE)
+    m = ANSWER_PATTERN.search(think_text)
     answer_found = m is not None
     answer_text = m.group(1).strip() if m else "answer not found"
 
@@ -100,7 +100,7 @@ def _metamathqa_to_sft(
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Random Removal Smoothing (Deng et al., 2024) - We add one more latent for 2% of the time
-        if random.randint(1, 100) > 98:
+        if random.randint(1, 100) > 99:
             total_num_latents = total_num_latents + 1
         # Calculate the number of latent steps for each example
         num_latent_steps_in_think_block = min(
@@ -166,6 +166,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
     processed = {
         "train": split_ds["train"].map(
             _metamathqa_to_sft,
+            num_proc=4,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
@@ -177,6 +178,7 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
         ),
         "validation": split_ds["test"].map(
             _metamathqa_to_sft,
+            num_proc=4,        
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,

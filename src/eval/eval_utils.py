@@ -78,6 +78,7 @@ def save_results(cfg, dataset, first_responses, first_extracted_answers_in_respo
     metrics["has_boxed"] = has_boxed_count / total_count
     metrics["fully_formatted"] = fully_formatted_count / total_count
     metrics["avg_token_length"] = sum(token_length_list) / len(token_length_list)
+    metrics["std_token_length"] = (sum((x - metrics["avg_token_length"]) ** 2 for x in token_length_list) / len(token_length_list)) ** 0.5
     
     # Save config
     config_path = output_dir / "config.json"

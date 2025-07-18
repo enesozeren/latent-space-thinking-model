@@ -2,13 +2,13 @@
 #SBATCH -p mcml-hgx-h100-94x4
 #SBATCH -q mcml
 #SBATCH --gres=gpu:1
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-00:40:00
 #SBATCH -o bash_outputs/output_eval_5.log
 #SBATCH -e bash_outputs/error_eval_5.log
 
 # Activate environment & set PYTHONPATH
 source /dss/dsshome1/0B/ra32qov2/anaconda3/etc/profile.d/conda.sh
-conda activate latr
+conda activate latr_2
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 CONFIG_PATH="src/configs/latent_reasoner_sft_eval_gsm.yaml"

@@ -192,7 +192,8 @@ class LatentReasoner(Qwen2ForCausalLM):
                 completion_language_token_ids = completion_language_token_ids.detach()
             
             # Append the completion embeddings to the inputs_embeds
-            completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
+            with torch.no_grad():
+                completion_embeds = self.get_input_embeddings()(completion_language_token_ids)
             prompt_completion_embeds = torch.cat([inputs_embeds, completion_embeds], dim=1)
             
             # Clean up intermediate tensors
@@ -265,7 +266,7 @@ class LatentReasoner(Qwen2ForCausalLM):
             prompt_completion_embeds, _ = self._prepare_latent_context(
                 input_ids=prompt_ids.unsqueeze(0),
                 num_latent_steps=num_latent_steps,
-                track_grad=True
+                track_grad=False # since latent steps do not contribute to the loss
             )
             
             answer_embeds = self.get_input_embeddings()(answer_ids.unsqueeze(0))

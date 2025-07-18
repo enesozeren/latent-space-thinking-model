@@ -5,7 +5,7 @@ model:
 
 dataset:
   name: "meta-math/MetaMathQA"
-  num_examples: 150000
+  num_examples: 300000
 
 training:
   seed: 42
@@ -16,9 +16,9 @@ training:
   lr_scheduler_gamma: 0.8
   learning_rate: 5.0e-5
   lr_scheduler_step_size: 50
-  num_train_epochs: 3
+  num_train_epochs: 1
   logging_steps: 1
-  eval_steps: 1024
+  eval_steps: 2048
   weight_decay: 0.01
 
 wandb:
