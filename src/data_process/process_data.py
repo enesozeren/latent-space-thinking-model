@@ -191,8 +191,8 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
     }
 
     # Drop examples where the answer was missing
-    processed["train"]      = processed["train"].filter(lambda ex: ex["answer_found"])
-    processed["validation"] = processed["validation"].filter(lambda ex: ex["answer_found"])
+    processed["train"]      = processed["train"].filter(lambda ex: ex["answer_found"], num_proc=16)
+    processed["validation"] = processed["validation"].filter(lambda ex: ex["answer_found"], num_proc=16)
 
     # (optional) tidy up
     processed["train"]      = processed["train"].remove_columns("answer_found")

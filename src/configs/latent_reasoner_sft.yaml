@@ -22,7 +22,7 @@ training:
   lr_scheduler_step_size: 500 # to make lr constant since schedular resets
   num_train_epochs: 7
   logging_steps: 1
-  eval_steps: 4096
+  eval_steps: 4568
   weight_decay: 0.01
 
 wandb:
