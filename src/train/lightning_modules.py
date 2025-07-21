@@ -187,9 +187,7 @@ class SFTDataModule(L.LightningDataModule):
         self.is_latent_reasoner = config["model"]["is_latent_reasoner"]
 
         self.max_num_latents = config.get("training", {}).get("max_num_latents", 0)
-        self.num_tokens_per_latent = config.get("training", {}).get("num_tokens_per_latent", 0)
-        if self.is_latent_reasoner:
-            assert self.num_tokens_per_latent > 0, "num_tokens_per_latent must be greater than 0."
+        self.num_latent_per_step = config.get("training", {}).get("num_latent_per_step", 0)
 
     def setup(self, stage: str, total_num_latents: int = 1):
         """Setup datasets."""
@@ -200,7 +198,7 @@ class SFTDataModule(L.LightningDataModule):
             tokenizer=self.tokenizer, 
             seed=self.config["training"]["seed"],
             is_latent_reasoner=self.is_latent_reasoner,
-            num_tokens_per_latent=self.num_tokens_per_latent,
+            num_latent_per_step=self.num_latent_per_step,
             max_num_latents=self.max_num_latents,
             total_num_latents=total_num_latents
         )
@@ -263,12 +261,14 @@ class GenerateSamplesCallback(L.Callback):
                  is_latent_reasoner: bool,
                  start_num_latents: Optional[int] = None,
                  add_latents_delta: Optional[int] = None,
-                 max_num_latents: Optional[int] = None):
+                 max_num_latents: Optional[int] = None,
+                 num_latent_per_step: Optional[int] = None):
         super().__init__()
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
         self.start_num_latents = start_num_latents
         self.add_latents_delta = add_latents_delta
+        self.num_latent_per_step = num_latent_per_step
         self.max_num_latents = max_num_latents
 
     @torch.inference_mode()
@@ -293,6 +293,7 @@ class GenerateSamplesCallback(L.Callback):
             total_latents = count_max_total_latents(
                 start_num_latents=self.start_num_latents,
                 add_latents_delta=self.add_latents_delta,
+                num_latent_per_step=self.num_latent_per_step,
                 current_epoch=current_epoch,
                 current_batch=current_batch,
                 num_batches_this_epoch=num_batches_this_epoch,
@@ -436,12 +437,16 @@ class DatasetRefreshCallback(L.Callback):
     – refresh the datamodule's preprocessing every epoch
     – hard-reset *all* optimisers and LR schedulers to their pristine state
     """
-    def __init__(self, start_num_latents: Optional[int], add_latents_delta: int, num_tokens_per_latent: int, max_num_latents: int):
+    def __init__(self, 
+                start_num_latents: Optional[int], 
+                add_latents_delta: int, 
+                max_num_latents: int,
+                num_latent_per_step: int):
         super().__init__()
         self.start_num_latents = start_num_latents
         self.add_latents_delta = add_latents_delta
-        self.num_tokens_per_latent = num_tokens_per_latent
         self.max_num_latents = max_num_latents
+        self.num_latent_per_step = num_latent_per_step
 
     #  Helpers
     @staticmethod
@@ -503,8 +508,9 @@ class DatasetRefreshCallback(L.Callback):
             logging.info(f"Current batch: {current_batch}")
             logging.info(f"Total numb of batches in this epoch: {num_batches_this_epoch}")
             total_num_latents = count_max_total_latents(
-                self.start_num_latents,
+                start_num_latents=self.start_num_latents,
                 add_latents_delta=self.add_latents_delta,
+                num_latent_per_step=self.num_latent_per_step,
                 current_epoch=current_epoch,
                 current_batch=current_batch,
                 num_batches_this_epoch=num_batches_this_epoch,

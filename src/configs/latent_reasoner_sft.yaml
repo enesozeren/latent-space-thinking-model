@@ -4,15 +4,15 @@ model:
   is_latent_reasoner: True
 
 dataset:
-  name: "meta-math/MetaMathQA"
-  num_examples: 300000
+  name: "whynlp/gsm8k-aug-nl"
+  num_examples: 3000
 
 training:
   seed: 42
   start_num_latents: 0
-  add_latents_delta: 4
-  num_tokens_per_latent: 8
-  max_num_latents: 24
+  add_latents_delta: 2
+  num_latent_per_step: 2
+  max_num_latents: 6
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
@@ -20,9 +20,9 @@ training:
   lr_scheduler_gamma: 0.8
   learning_rate: 5.0e-5
   lr_scheduler_step_size: 500 # to make lr constant since schedular resets
-  num_train_epochs: 7
+  num_train_epochs: 4
   logging_steps: 1
-  eval_steps: 4568
+  eval_steps: 512
   weight_decay: 0.01
 
 wandb:

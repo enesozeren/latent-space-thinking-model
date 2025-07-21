@@ -60,24 +60,19 @@ def prepare_dataset_rl(config: dict, is_latent_reasoner: bool = False) -> Datase
     return DatasetDict(processed)
 
 
-def _metamathqa_to_sft(
+def _gsm8k_aug_nl_to_sft(
     example, 
     tokenizer, 
     is_latent_reasoner: bool,
-    num_tokens_per_latent: int,
+    num_latent_per_step: int,
     max_num_latents: int,
     total_num_latents: int) -> dict:
-    """Process a single meta-math/MetaMathQA example into SFT format with explicit <think>/<answer> sections.
-    If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
+    """Process a single whynlp/gsm8k-aug-nl example into SFT format with explicit <think>/<answer> sections.
     Returns a dict with input_ids, attention_mask and labels.
     """
-    question = example["query"].strip()
-    think_text = example["response"].strip()
-    # parse the answer from the think text in meta-math/MetaMathQA dataset
-    # response always contains the answer is at the end
-    m = ANSWER_PATTERN.search(think_text)
-    answer_found = m is not None
-    answer_text = m.group(1).strip() if m else "answer not found"
+    question = example["question"].strip()
+    think_steps_list = example["steps"]
+    answer_text = example["answer"].strip()
 
     final_ans = f"\\boxed{{{answer_text}}}"
 
@@ -97,26 +92,19 @@ def _metamathqa_to_sft(
 
     # latent-token replacement logic
     if is_latent_reasoner:
-        # convert the think text to ids
-        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
-        # Random Removal Smoothing (Deng et al., 2024) - We add one more latent for 2% of the time
-        if random.randint(1, 100) > 99:
-            total_num_latents = total_num_latents + 1
         # Calculate the number of latent steps for each example
-        num_latent_steps_in_think_block = min(
+        num_latent_steps_in_think_block = int(min(
             total_num_latents, 
-            math.ceil(len(think_ids) // num_tokens_per_latent)
-        )
+            len(think_steps_list) * num_latent_per_step
+        ))
         # Reduce the tokens in the think block
         if num_latent_steps_in_think_block < max_num_latents:
-            think_ids = think_ids[num_tokens_per_latent * num_latent_steps_in_think_block:]
+            think_steps_list = think_steps_list[int(num_latent_steps_in_think_block // num_latent_per_step):]
         else:
-            think_ids = []
-        # Add start think and end think tokens in the think ids
-        ## first convert the think ids to a string
-        think_text = tokenizer.decode(think_ids, skip_special_tokens=False)
-        ## then add the start think and end think tokens
-        think_text = "<think>" + think_text + "</think>"
+            think_steps_list = []
+        # Add start think and end think tokens
+        think_steps_str = " ".join(think_steps_list)
+        think_text = "<think>" + think_steps_str + "</think>"
         ## then convert the think text back to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
 
@@ -129,8 +117,9 @@ def _metamathqa_to_sft(
             [start_latent_id] + [-100] * num_latent_steps_in_think_block + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
     else:
+        think_steps_str = " ".join(think_steps_list)
         # convert the think text to ids after adding the start and end think tokens
-        think_text = "<think>" + think_text + "</think>"
+        think_text = "<think>" + think_steps_str + "</think>"
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # No latent tokens
         input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
@@ -142,17 +131,17 @@ def _metamathqa_to_sft(
     return {
         "input_ids":      input_ids,
         "attention_mask": attention_mask,
-        "labels":         labels,
-        "answer_found":   answer_found
+        "labels":         labels
     }
 
 
 def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int, 
                         is_latent_reasoner: bool,
-                        num_tokens_per_latent: int,
+                        num_latent_per_step: int,
                         max_num_latents: int,
                         total_num_latents: int) -> DatasetDict:
-    """Convert meta-math/MetaMathQA into latent-reasoning SFT format using the provided tokenizer.
+    """
+    Convert whynlp/gsm8k-aug-nl into SFT format using the provided tokenizer.
     """
     logger = logging.getLogger(__name__)
     # Load dataset
@@ -165,38 +154,30 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
     # Process both splits with map, passing tokenizer & num_latent_steps via fn_kwargs
     processed = {
         "train": split_ds["train"].map(
-            _metamathqa_to_sft,
+            _gsm8k_aug_nl_to_sft,
             num_proc=8,
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
-                "num_tokens_per_latent": num_tokens_per_latent,
+                "num_latent_per_step": num_latent_per_step,
                 "max_num_latents": max_num_latents,
                 "total_num_latents": total_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
         "validation": split_ds["test"].map(
-            _metamathqa_to_sft,
+            _gsm8k_aug_nl_to_sft,
             num_proc=8,        
             fn_kwargs={
                 "tokenizer": tokenizer, 
                 "is_latent_reasoner": is_latent_reasoner,
-                "num_tokens_per_latent": num_tokens_per_latent,
+                "num_latent_per_step": num_latent_per_step,
                 "max_num_latents": max_num_latents,
                 "total_num_latents": total_num_latents
                 },
             remove_columns=raw_ds.column_names,
         ),
     }
-
-    # Drop examples where the answer was missing
-    processed["train"]      = processed["train"].filter(lambda ex: ex["answer_found"], num_proc=16)
-    processed["validation"] = processed["validation"].filter(lambda ex: ex["answer_found"], num_proc=16)
-
-    # (optional) tidy up
-    processed["train"]      = processed["train"].remove_columns("answer_found")
-    processed["validation"] = processed["validation"].remove_columns("answer_found")
 
 
     # Log the dataset split sizes
