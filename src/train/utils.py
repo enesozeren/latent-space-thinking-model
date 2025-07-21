@@ -103,28 +103,11 @@ def is_rank_zero():
 
 
 def count_max_total_latents(
-    start_num_latents, add_latents_delta: int, num_latent_per_step: int, 
-    current_epoch: int, current_batch: int, 
-    num_batches_this_epoch: int, max_num_latents: int
+    current_epoch: int, start_num_latents: int, 
+    num_latent_per_step: int, max_num_latents: int
     ):
     """Count the maximum total number of latents in the update cycle."""
-    # Example case
-    # start_num_latents = 0
-    # current_epoch = 0
-    # num_batches_this_epoch = 30
-    # add_latents_delta = 4
-    # num_latent_per_step = 2
-    # num_updates_this_epoch = 4 / 2 = 2
-    # 30 // 2 = 15
-    # 0-14: 2, 15-30: 4
-    assert add_latents_delta % num_latent_per_step == 0, \
-        "add_latents_delta should be divisible by num_latent_per_step"
-    # calculate the numb of updates to be performed in this epoch
-    num_updates_this_epoch = add_latents_delta / num_latent_per_step
-    numb_of_latents_from_last_epoch = current_epoch * add_latents_delta # since epoch starts with 0
-    interval_to_add_latent = num_batches_this_epoch // num_updates_this_epoch
-    numb_of_latents_to_add = current_batch // interval_to_add_latent + num_latent_per_step
-    total_latents = start_num_latents + numb_of_latents_from_last_epoch + numb_of_latents_to_add
-    total_latents = int(min(total_latents, max_num_latents))
+    total_latents = start_num_latents + num_latent_per_step * (current_epoch + 1) # +1 bc epoch starts with 0
+    total_latents = min(total_latents, max_num_latents)
 
-    return total_latents
+    return int(total_latents)

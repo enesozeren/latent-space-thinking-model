@@ -67,7 +67,6 @@ def train_model(config_path: str) -> None:
         # Dataset refresh callback
         dataset_refresh_cb = DatasetRefreshCallback(
             start_num_latents = cfg["training"]["start_num_latents"],
-            add_latents_delta = cfg["training"]["add_latents_delta"],
             max_num_latents = cfg["training"]["max_num_latents"],
             num_latent_per_step = cfg["training"]["num_latent_per_step"]
         )
@@ -78,7 +77,6 @@ def train_model(config_path: str) -> None:
         num_samples=8,
         is_latent_reasoner=cfg.get("model", {}).get("is_latent_reasoner", False),
         start_num_latents=cfg.get("training", {}).get("start_num_latents"),
-        add_latents_delta=cfg.get("training", {}).get("add_latents_delta"),
         max_num_latents=cfg.get("training", {}).get("max_num_latents"),
         num_latent_per_step=cfg.get("training", {}).get("num_latent_per_step")
     )

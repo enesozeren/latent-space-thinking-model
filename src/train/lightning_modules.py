@@ -189,7 +189,11 @@ class SFTDataModule(L.LightningDataModule):
         self.max_num_latents = config.get("training", {}).get("max_num_latents", 0)
         self.num_latent_per_step = config.get("training", {}).get("num_latent_per_step", 0)
 
-    def setup(self, stage: str, total_num_latents: int = 1):
+    def setup(self, stage: str, total_num_latents: Optional[int] = None):
+        # When initialized for the first time assign num_latent_per_step
+        if total_num_latents is None:
+            total_num_latents: int = self.num_latent_per_step
+        
         """Setup datasets."""
         # Prepare the dataset
         data = prepare_dataset_sft(
@@ -206,8 +210,8 @@ class SFTDataModule(L.LightningDataModule):
         self.train_dataset = SFTDataset(data["train"])
         self.val_dataset = SFTDataset(data["validation"])
 
-        # 3. Show one training example for sanity-check
-        if len(self.train_dataset) and is_rank_zero():
+        # Show one training example for sanity-check
+        if is_rank_zero():
             sample = self.train_dataset[0]
 
             # decode the input text so it's readable
@@ -260,14 +264,12 @@ class GenerateSamplesCallback(L.Callback):
     def __init__(self, num_samples: int, 
                  is_latent_reasoner: bool,
                  start_num_latents: Optional[int] = None,
-                 add_latents_delta: Optional[int] = None,
                  max_num_latents: Optional[int] = None,
                  num_latent_per_step: Optional[int] = None):
         super().__init__()
         self.num_samples = num_samples
         self.is_latent_reasoner = is_latent_reasoner
         self.start_num_latents = start_num_latents
-        self.add_latents_delta = add_latents_delta
         self.num_latent_per_step = num_latent_per_step
         self.max_num_latents = max_num_latents
 
@@ -287,16 +289,12 @@ class GenerateSamplesCallback(L.Callback):
         current_epoch = trainer.current_epoch
         
         logging.info("Generate Samples Callback Triggered")
-        logging.info(f"Current Epoch: {current_epoch} & Current Batch: {current_batch}")
-        logging.info(f"Num Batches This Epoch: {num_batches_this_epoch}")
+        logging.info(f"Current Epoch: {current_epoch}")
         if self.is_latent_reasoner:
             total_latents = count_max_total_latents(
-                start_num_latents=self.start_num_latents,
-                add_latents_delta=self.add_latents_delta,
-                num_latent_per_step=self.num_latent_per_step,
                 current_epoch=current_epoch,
-                current_batch=current_batch,
-                num_batches_this_epoch=num_batches_this_epoch,
+                start_num_latents=self.start_num_latents,
+                num_latent_per_step=self.num_latent_per_step,
                 max_num_latents=self.max_num_latents
             )
             logging.info(f"Total Latents: {total_latents}")
@@ -414,7 +412,7 @@ class GenerateSamplesCallback(L.Callback):
                 
             total_accuracy_samples += 1
             
-            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Accuracy {n}] \Ground Truth: '{gt_answer_content}', Predicted: '{pred_answer_content}', Correct: {is_correct}")
+            logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Accuracy {n}] \nGround Truth: '{gt_answer_content}', Predicted: '{pred_answer_content}', Correct: {is_correct}")
             logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Question {n}] {question}")
             logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Answer   {n}] {answer}")
             logging.info(f"[Epoch {current_epoch} & Batch {current_batch}] [VAL Answer Length {n}] {len(seq)}")
@@ -439,12 +437,10 @@ class DatasetRefreshCallback(L.Callback):
     """
     def __init__(self, 
                 start_num_latents: Optional[int], 
-                add_latents_delta: int, 
                 max_num_latents: int,
                 num_latent_per_step: int):
         super().__init__()
         self.start_num_latents = start_num_latents
-        self.add_latents_delta = add_latents_delta
         self.max_num_latents = max_num_latents
         self.num_latent_per_step = num_latent_per_step
 
@@ -487,63 +483,49 @@ class DatasetRefreshCallback(L.Callback):
             scheduler.cooldown_counter = 0
 
     #  Main hook
-    def on_train_batch_end(
+    def on_train_epoch_end(
         self,
         trainer: L.Trainer,
         pl_module: L.LightningModule,
-        outputs, batch, batch_idx,
         *args, **kwargs,
     ):
+        next_epoch = trainer.current_epoch + 1
+        # Get the number of latent steps in this epoch
+        logging.info("Dataset Refresh Callback Triggered")
+        logging.info(f"Next epoch: {next_epoch}")
+        total_num_latents = count_max_total_latents(
+            current_epoch=next_epoch, # next_epoch bc we prepare the data for next epoch
+            start_num_latents=self.start_num_latents,
+            num_latent_per_step=self.num_latent_per_step,
+            max_num_latents=self.max_num_latents
+        )
+        logging.info(f"Numb of latent steps in this cycle: {total_num_latents}")
 
-        current_batch = batch_idx
-        current_epoch = trainer.current_epoch
-        num_batches_this_epoch = trainer.num_training_batches
-        interval_to_add_latent = num_batches_this_epoch // self.add_latents_delta
+        pl_module.log(
+            "step/total_latents",
+            total_num_latents,
+            on_epoch=True,
+            on_step=False,
+        )
 
-        # Update the dataset if it is time
-        if (current_batch) % interval_to_add_latent == 0:
-            # Get the number of latent steps in this epoch
-            logging.info("Dataset Refresh Callback Triggered")
-            logging.info(f"Current epoch: {current_epoch}")
-            logging.info(f"Current batch: {current_batch}")
-            logging.info(f"Total numb of batches in this epoch: {num_batches_this_epoch}")
-            total_num_latents = count_max_total_latents(
-                start_num_latents=self.start_num_latents,
-                add_latents_delta=self.add_latents_delta,
-                num_latent_per_step=self.num_latent_per_step,
-                current_epoch=current_epoch,
-                current_batch=current_batch,
-                num_batches_this_epoch=num_batches_this_epoch,
-                max_num_latents=self.max_num_latents
-            )
-            logging.info(f"Numb of latent steps in this cycle: {total_num_latents}")
+        # Refresh the dataset (every rank – Lightning will DDP-spawn)
+        trainer.datamodule.update_dataset(total_num_latents=total_num_latents)
 
-            pl_module.log(
-                "step/total_latents",
-                total_num_latents,
-                on_epoch=False,
-                on_step=True,
-            )
+        # Reset every optimiser
+        for opt in trainer.optimizers:
+            self._reset_optimizer_state(opt)
 
-            # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
-            trainer.datamodule.update_dataset(total_num_latents=total_num_latents)
+        # Reset every LR scheduler
+        sched_cfgs = getattr(trainer, "lr_schedulers", getattr(trainer, "lr_scheduler_configs", []))
+        for cfg in sched_cfgs:
+            # cfg is a dict in new PL, an AttrDict-like object in old PL
+            scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
+            self._reset_scheduler_state(scheduler)
 
-            # 3. Reset every optimiser
-            for opt in trainer.optimizers:
-                self._reset_optimizer_state(opt)
+        logging.info(f"Dataset + optimiser/scheduler reset for Epoch: {next_epoch}.")
 
-            # 4. Reset every LR scheduler
-            sched_cfgs = getattr(trainer, "lr_schedulers",
-                                getattr(trainer, "lr_scheduler_configs", []))
-            for cfg in sched_cfgs:
-                # cfg is a dict in new PL, an AttrDict-like object in old PL
-                scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
-                self._reset_scheduler_state(scheduler)
-
-            logging.info(f"Dataset + optimiser/scheduler reset at Epoch: {current_epoch} and Batch: {current_batch}).")
-
-            # 5. Make sure every rank arrives here before training resumes
-            trainer.strategy.barrier()
+        # Make sure every rank arrives here before training resumes
+        trainer.strategy.barrier()
 
 
 class HFModelCheckpoint(ModelCheckpoint):
