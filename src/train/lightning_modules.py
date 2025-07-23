@@ -212,20 +212,21 @@ class SFTDataModule(L.LightningDataModule):
 
         # Show one training example for sanity-check
         if is_rank_zero():
-            sample = self.train_dataset[0]
+            for i in range(20):
+                sample = self.train_dataset[i]
 
-            # decode the input text so it's readable
-            decoded_prompt = self.tokenizer.decode(
-                sample["input_ids"],
-                skip_special_tokens=False,
-                clean_up_tokenization_spaces=True,
-            )
+                # decode the input text so it's readable
+                decoded_prompt = self.tokenizer.decode(
+                    sample["input_ids"],
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=True,
+                )
 
-            print(f"\n=== SFT Data Check (Total Numb of Latents: {total_num_latents}) ===")
-            print("Prompt:\n", decoded_prompt)
-            torch.set_printoptions(threshold=float('inf'))
-            print("\nLabel IDs:", sample["labels"])
-            print("====================================\n")        
+                print(f"\n=== SFT Data Check (Total Numb of Latents: {total_num_latents}) ===")
+                print("Prompt:\n", decoded_prompt)
+                torch.set_printoptions(threshold=float('inf'))
+                print("\nLabel IDs:", sample["labels"])
+                print("====================================\n")        
 
     def update_dataset(self, total_num_latents: int):
         """Re-setup datasets for a new epoch with different preprocessing."""

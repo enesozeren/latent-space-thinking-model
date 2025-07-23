@@ -8,11 +8,11 @@ import random
 
 from prompts.prompts import (
     SYSTEM_PROMPT, 
-    SYSTEM_PROMPT_LATENT_REASONER
+    SYSTEM_PROMPT_LATENT_REASONER_THINK,
+    SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )
 from src.train.utils import count_max_total_latents
 
-ANSWER_PATTERN = re.compile(r'The answer is:\s*([^\n\r#]+)', flags=re.IGNORECASE)
 
 def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """Convert an OpenR1-Math-220k row → GRPO expected format.
@@ -22,7 +22,7 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
     """
     question = example["problem"].strip()
     answer = example["answer"].strip()
-    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
+    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
     prompt = system_prompt + "\nUser:" + question + "\nAssistant:"
 
     return {
@@ -75,23 +75,18 @@ def _gsm8k_aug_nl_to_sft(
     answer_text = example["answer"].strip()
 
     final_ans = f"\\boxed{{{answer_text}}}"
-
-    # add system prompt,<think> and <answer> tags to the COT and final answer
-    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
-    prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"    
     final_ans = "<answer>" + final_ans + "</answer>"
 
     # build token sequence
-    prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
-    if is_latent_reasoner:
-        start_latent_id = tokenizer.start_latent_token_id
-        end_latent_id = tokenizer.end_latent_token_id
-        latent_id = tokenizer.latent_token_id
 
     # latent-token replacement logic
     if is_latent_reasoner:
+        # latent token ids
+        start_latent_id = tokenizer.start_latent_token_id
+        end_latent_id = tokenizer.end_latent_token_id
+        latent_id = tokenizer.latent_token_id
         # Calculate the number of latent steps for each example
         num_latent_steps_in_think_block = int(min(
             total_num_latents, 
@@ -102,28 +97,44 @@ def _gsm8k_aug_nl_to_sft(
             think_steps_list = think_steps_list[int(num_latent_steps_in_think_block // num_latent_per_step):]
         else:
             think_steps_list = []
-        # Add start think and end think tokens
-        think_steps_str = " ".join(think_steps_list)
-        think_text = "<think>" + think_steps_str + "</think>"
-        ## then convert the think text back to ids
-        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
+        # prefix
+        if think_steps_list == []:
+            # no language steps left, so use prompt without think tokens
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
+        else:
+            # some language steps left, so use prompt with think tokens
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_THINK
+        prefix_text = system_prompt + "\nUser:" + question + "\nAssistant:"
+        prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids            
+        # Add start think and end think tokens if necessary
+        if think_steps_list == []:
+            think_ids = []
+        else:
+            think_steps_str = " ".join(think_steps_list)
+            think_text = "<think>" + think_steps_str + "</think>"
+            think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
 
-        # Create the input_ids
+        # Create input_ids
         input_ids = prefix_ids + \
             [start_latent_id] + [latent_id] * num_latent_steps_in_think_block + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
-        # Mask prefix and latent tokens but not the think/answer sections
+        # Create labels
         labels = [-100] * len(prefix_ids) + \
             [start_latent_id] + [-100] * num_latent_steps_in_think_block + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
     else:
+        # prefix
+        system_prompt = SYSTEM_PROMPT
+        prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"
+        prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
+        # think part  
         think_steps_str = " ".join(think_steps_list)
         # convert the think text to ids after adding the start and end think tokens
         think_text = "<think>" + think_steps_str + "</think>"
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
-        # No latent tokens
+        # Create input_ids
         input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
-        # Only mask the prefix
+        # Create labels
         labels = [-100] * len(prefix_ids) + think_ids + answer_ids + [eos_id]
 
     attention_mask = [1] * len(input_ids)

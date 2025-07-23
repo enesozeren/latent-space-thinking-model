@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 from src.latent_reasoner.model import LatentReasoner
 from src.train.utils import setup_latent_tokens
 from prompts.prompts import (
-    SYSTEM_PROMPT_LATENT_REASONER
+    SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )
 
 if __name__ == "__main__":
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     # Define the prompt
     question = r"If James collects 15 gallons of water for every inch of rain, and it rained 4 inches on Monday and 3 inches on Tuesday, how much money did he make from selling all the water if he can sell it for $1.2 per gallon?"
         
-    system_prompt = SYSTEM_PROMPT_LATENT_REASONER
+    system_prompt = SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
     prompt   = system_prompt + "\nUser:" + question + "\nAssistant:"    
 
     # Tokenize batch of prompts

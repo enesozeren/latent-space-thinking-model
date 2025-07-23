@@ -1,6 +1,6 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250702_145220/hf_checkpoints/step=0796"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250720_232052/final_model"
   is_latent_reasoner: False  # Set to true for latent reasoner evaluation
 
 # Dataset configuration
@@ -20,7 +20,7 @@ generation:
 logs:
   output_dir: "outputs"
   wandb_project: "latent_reasoner_eval"
-  wandb_run_name: qwen_1p5b_sft_step0796_HuggingFaceH4/MATH-500
+  wandb_run_name: qwen_1p5b_sft_gsmaugnl_HuggingFaceH4/MATH-500
   no_wandb: false
 
 # Reproducibility
