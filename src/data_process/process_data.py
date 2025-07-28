@@ -11,7 +11,6 @@ from prompts.prompts import (
     SYSTEM_PROMPT_LATENT_REASONER_THINK,
     SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )
-from src.train.utils import count_max_total_latents
 
 
 def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
@@ -87,14 +86,14 @@ def _gsm8k_aug_nl_to_sft(
         start_latent_id = tokenizer.start_latent_token_id
         end_latent_id = tokenizer.end_latent_token_id
         latent_id = tokenizer.latent_token_id
-        # Calculate the number of latent steps for each example
-        num_latent_steps_in_think_block = int(min(
-            total_num_latents, 
-            len(think_steps_list) * num_latent_per_step
-        ))
+        # # Calculate the number of latent steps for each example
+        # num_latent_steps_in_think_block = int(min(
+        #     total_num_latents, 
+        #     len(think_steps_list) * num_latent_per_step
+        # ))
         # Reduce the tokens in the think block
-        if num_latent_steps_in_think_block < max_num_latents:
-            think_steps_list = think_steps_list[int(num_latent_steps_in_think_block // num_latent_per_step):]
+        if total_num_latents < max_num_latents:
+            think_steps_list = think_steps_list[int(total_num_latents // num_latent_per_step):]
         else:
             think_steps_list = []
         # prefix
@@ -116,11 +115,11 @@ def _gsm8k_aug_nl_to_sft(
 
         # Create input_ids
         input_ids = prefix_ids + \
-            [start_latent_id] + [latent_id] * num_latent_steps_in_think_block + [end_latent_id] + \
+            [start_latent_id] + [latent_id] * total_num_latents + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
         # Create labels
         labels = [-100] * len(prefix_ids) + \
-            [start_latent_id] + [-100] * num_latent_steps_in_think_block + [end_latent_id] + \
+            [start_latent_id] + [-100] * total_num_latents + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
     else:
         # prefix

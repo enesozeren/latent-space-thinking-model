@@ -1,21 +1,21 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250722_073010/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250728_102434/final_model"
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
-  num_latent_steps: 8  # Number of latent steps
+  num_latent_steps: 6  # Number of latent steps
 
 # Dataset configuration
 dataset:
   dataset: "openai/gsm8k"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
   split: "test"            # choices: ["test", "train"]
-  num_examples: 64       # null means use all examples, or specify a number
+  num_examples: null       # null means use all examples, or specify a number
 
 # Generation parameters
 generation:
   temperature: 0.2
   top_p: 0.95
   max_length: 2048
-  batch_size: 4
+  batch_size: 1
 
 # Output configuration
 logs:

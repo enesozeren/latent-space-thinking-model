@@ -11,7 +11,8 @@ training:
   seed: 42
   start_num_latents: 0
   num_latent_per_step: 2
-  max_num_latents: 8
+  max_num_latents: 6
+  num_epochs_per_stage: 1
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
@@ -19,7 +20,6 @@ training:
   lr_scheduler_gamma: 0.8
   learning_rate: 5.0e-5
   lr_scheduler_step_size: 50
-  num_train_epochs: 6
   logging_steps: 1
   eval_steps: 8192
   weight_decay: 0.01

@@ -13,8 +13,12 @@ def get_format_info(response, tokenizer, is_latent_reasoner):
     """Extract format information from the model response."""
     
     if is_latent_reasoner:
+        # full_pattern = re.compile(
+        #     r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+        #     re.DOTALL
+        # )
         full_pattern = re.compile(
-            r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+            r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><answer>.*?\\boxed\{.*?\}.*?</answer>$",
             re.DOTALL
         )
     else:

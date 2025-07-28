@@ -20,6 +20,9 @@ def train_model(config_path: str) -> None:
     """Main training routine using PyTorch Lightning."""
     cfg = load_config(config_path)
     
+    # is_latent_reasoner
+    is_latent_reasoner = cfg.get("model", {}).get("is_latent_reasoner", False)
+    
     # Setup logging and output directory
     output_dir = setup_logging(cfg)
     
@@ -49,7 +52,7 @@ def train_model(config_path: str) -> None:
     # Model checkpoint callback
     checkpoint_callback = HFModelCheckpoint(
         output_dir, 
-        is_latent_reasoner=cfg["model"]["is_latent_reasoner"]
+        is_latent_reasoner=is_latent_reasoner
     )
     callbacks.append(checkpoint_callback)
     
@@ -60,31 +63,48 @@ def train_model(config_path: str) -> None:
     # Create data module
     data_module = SFTDataModule(cfg, tokenizer)
     logging.info("Data created.")
-    
+
+    # Latent Reasoner arguments (if not found will be none)
+    start_num_latents = cfg.get("training", {}).get("start_num_latents")
+    num_latent_per_step = cfg.get("training", {}).get("num_latent_per_step")
+    max_num_latents = cfg.get("training", {}).get("max_num_latents")
+    num_epochs_per_stage = cfg.get("training", {}).get("num_epochs_per_stage")
+
     # If using latent reasoning, add dataset refresh callback to introduce latent steps incrementally
-    if cfg["model"]["is_latent_reasoner"]:
+    if is_latent_reasoner:
         logging.info("Latent Reasoning enabled, adding dataset refresh callback.")
+
         # Dataset refresh callback
         dataset_refresh_cb = DatasetRefreshCallback(
-            start_num_latents = cfg["training"]["start_num_latents"],
-            max_num_latents = cfg["training"]["max_num_latents"],
-            num_latent_per_step = cfg["training"]["num_latent_per_step"]
+            start_num_latents = start_num_latents,
+            max_num_latents = max_num_latents,
+            num_latent_per_step = num_latent_per_step,
+            num_epochs_per_stage=num_epochs_per_stage
         )
         callbacks.append(dataset_refresh_cb)
 
     # Qualitative evaluation callback
     sample_cb = GenerateSamplesCallback(
         num_samples=8,
-        is_latent_reasoner=cfg.get("model", {}).get("is_latent_reasoner", False),
-        start_num_latents=cfg.get("training", {}).get("start_num_latents"),
-        max_num_latents=cfg.get("training", {}).get("max_num_latents"),
-        num_latent_per_step=cfg.get("training", {}).get("num_latent_per_step")
+        is_latent_reasoner=is_latent_reasoner,
+        start_num_latents=start_num_latents,
+        max_num_latents=max_num_latents,
+        num_latent_per_step=num_latent_per_step,
+        num_epochs_per_stage=num_epochs_per_stage
     )
-    callbacks.append(sample_cb)        
+    callbacks.append(sample_cb)
     
+    # calculate numb_epochs
+    if cfg.get("model", {}).get("is_latent_reasoner", False):
+        num_stages = (max_num_latents - start_num_latents) / num_latent_per_step
+        numb_epochs = int(num_stages * num_epochs_per_stage)
+    else:
+        numb_epochs = cfg.get("training", {}).get("num_train_epochs")
+    logging.info(f"Number of Epochs: {numb_epochs}")
+
     # Setup trainer
     trainer = L.Trainer(
-        max_epochs=cfg["training"]["num_train_epochs"],
+        max_epochs=numb_epochs,
         accelerator="auto",
         devices="auto",
         strategy="auto",
