@@ -1,7 +1,8 @@
 #!/bin/bash
-#SBATCH -p lrz-hgx-h100-94x4
+#SBATCH -p mcml-dgx-a100-40x8
+#SBATCH -q mcml
 #SBATCH --gres=gpu:1
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-01:00:00
 #SBATCH -o bash_outputs/output_eval_6.log
 #SBATCH -e bash_outputs/error_eval_6.log
 
@@ -10,7 +11,7 @@ source /dss/dsshome1/0B/ra32qov2/anaconda3/etc/profile.d/conda.sh
 conda activate latr_2
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
-CONFIG_PATH="src/configs/latent_reasoner_sft_eval_math.yaml"
+CONFIG_PATH="src/configs/latent_reasoner_sft_rl_eval_math.yaml"
 
 echo "Starting evaluation"
 

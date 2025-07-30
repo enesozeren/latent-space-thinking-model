@@ -8,12 +8,10 @@ from math_verify import LatexExtractionConfig, parse, verify
 def accuracy_reward(completions: List[Union[str, List[dict]]], answer: List[str], **kwargs) -> List[Optional[float]]:
     """
     Reward function that checks for:
-      - Exact match => 1.0
-      - Latex Verified => 0.75
+      - Exact match / Latex Verified => 1.0
       - Otherwise => 0.0
     """
     full_reward = 1.0
-    partial_reward = 0.75
     zero_reward = 0.0
 
     # Handle both string completions (base models) and chat completions (instruction-tuned models)
@@ -100,8 +98,8 @@ def accuracy_reward(completions: List[Union[str, List[dict]]], answer: List[str]
             continue
         try:
             if verify(sol_parsed, content_parsed):
-                # if the verification passes, we can verify it but it is not perfect match
-                rewards.append(partial_reward)
+                # if the verification passes full reward
+                rewards.append(full_reward)
             else:
                 # if the verification fails, the content is not correct
                 rewards.append(zero_reward)
@@ -177,9 +175,9 @@ def format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> 
 def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwargs) -> List[float]:
     """
     Reward function that checks for:
-      - Exactly one <|start-latent|>…<|end-latent|>, <think>…</think> and <answer>…</answer> blocks.
-      - Full match: <|start-latent|>…<|end-latent|> <think>…</think> <answer>…\\boxed{…}…</answer>
-      - Partial match: <|start-latent|>…<|end-latent|> <think>…</think> <answer>…</answer> (no \\boxed)
+      - Exactly one <|start-latent|>…<|end-latent|> and <answer>…</answer> blocks.
+      - Full match: <|start-latent|>…<|end-latent|> <answer>…\\boxed{…}…</answer>
+      - Partial match: <|start-latent|>…<|end-latent|> <answer>…</answer> (no \\boxed)
       - Negative reward: any of <|start-latent|> <|end-latent|> <|latent|> tokens are present after the first <|end-latent|> token
       - Otherwise => Zero reward
     """
@@ -189,11 +187,11 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
     zero_reward = 0.0
 
     full_pattern = re.compile(
-        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>\\boxed\{.*?\}</answer>$",
         re.DOTALL
     )
     partial_pattern = re.compile(
-        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<think>.*?</think>\s*<answer>.*?</answer>$",
+        r"^<\|start-latent\|>.*?<\|end-latent\|>\s*<answer>.*?</answer>$",
         re.DOTALL
     )
 
@@ -229,11 +227,11 @@ def latent_format_reward(completions: List[Union[str, dict, List[dict]]], **kwar
             rewards.append(zero_reward)
             continue
 
-        # 2) must have exactly one <think>…</think>
-        all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
-        if len(all_thinks) != 1:
-            rewards.append(zero_reward)
-            continue
+        # # 2) must have exactly one <think>…</think>
+        # all_thinks = re.findall(r"<think>.*?</think>", text, re.DOTALL)
+        # if len(all_thinks) != 1:
+        #     rewards.append(zero_reward)
+        #     continue
 
         # 3) must have exactly one <answer>..</answer>
         all_answers = re.findall(r"<answer>.*?</answer>", text, re.DOTALL)

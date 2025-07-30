@@ -12,7 +12,7 @@ training:
   start_num_latents: 0
   num_latent_per_step: 2
   max_num_latents: 6
-  num_epochs_per_stage: 1
+  num_epochs_per_stage: 2
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1

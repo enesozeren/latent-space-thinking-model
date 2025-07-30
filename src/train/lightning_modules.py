@@ -529,7 +529,7 @@ class DatasetRefreshCallback(L.Callback):
         trainer.datamodule.update_dataset(total_num_latents=total_num_latents)
 
         # Reset optimizer and lr scheduler when total_num_latents changes
-        if self.num_epochs_with_max_num_latents == 0:
+        if next_epoch % self.num_epochs_per_stage == 0:
             # Reset every optimiser
             for opt in trainer.optimizers:
                 self._reset_optimizer_state(opt)

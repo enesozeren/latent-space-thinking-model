@@ -21,7 +21,7 @@ generation:
 logs:
   output_dir: "outputs"
   wandb_project: "latent_reasoner_eval"
-  wandb_run_name: latent_reasoner_1p5b_sft_gsmaugnl_gsm8k_eval
+  wandb_run_name: latent_reasoner_1p5b_sft_gsmaugnl_numbepochperstage2_epoch7_gsm8k_eval
   no_wandb: false
 
 # Reproducibility

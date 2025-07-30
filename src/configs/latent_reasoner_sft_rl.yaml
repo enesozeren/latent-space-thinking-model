@@ -1,12 +1,12 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250703_085301/hf_checkpoints/epoch=05"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/20250728_102434/final_model"
   is_latent_reasoner: True
-  num_latent_steps: 30
+  num_latent_steps: 6
 
 dataset:
   name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
-  num_examples: 5000
+  num_examples: 15000
 
 training:
   seed: 42
@@ -20,8 +20,8 @@ training:
     min_lr_rate: 0.1
   num_train_epochs: 1
   logging_steps: 1
-  eval_steps: 50
-  save_steps: 50
+  eval_steps: 100
+  save_steps: 100
   warmup_steps: 10
   weight_decay: 0.01
 
