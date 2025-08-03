@@ -1,6 +1,6 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft/20250720_232052/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/numepochsperstage2_epoch7/hf_checkpoints/epoch=00"
   is_latent_reasoner: True
 
 dataset:
@@ -9,10 +9,10 @@ dataset:
 
 training:
   seed: 42
-  start_num_latents: 0
+  start_num_latents: 4
   num_latent_per_step: 2
   max_num_latents: 6
-  num_epochs_per_stage: 2
+  num_epochs_per_stage: 1
   output_dir: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft"
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
@@ -26,4 +26,4 @@ training:
 
 wandb:
   project: latent_reasoner_sft
-  run_name: latent_reasoner_1p5b_sft
+  run_name: latent_reasoner_1p5b_sft_numepochsperstage2_epoch8

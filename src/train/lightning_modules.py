@@ -458,7 +458,6 @@ class DatasetRefreshCallback(L.Callback):
         self.max_num_latents = max_num_latents
         self.num_latent_per_step = num_latent_per_step
         self.num_epochs_per_stage = num_epochs_per_stage
-        self.num_epochs_with_max_num_latents = 0
 
     #  Helpers
     @staticmethod
@@ -530,21 +529,10 @@ class DatasetRefreshCallback(L.Callback):
 
         # Reset optimizer and lr scheduler when total_num_latents changes
         if next_epoch % self.num_epochs_per_stage == 0:
-            # Reset every optimiser
-            for opt in trainer.optimizers:
-                self._reset_optimizer_state(opt)
+            # Get fresh optimizer and scheduler configuration
+            trainer.strategy.setup_optimizers(trainer)
 
-            # Reset every LR scheduler
-            sched_cfgs = getattr(trainer, "lr_schedulers", getattr(trainer, "lr_scheduler_configs", []))
-            for cfg in sched_cfgs:
-                # cfg is a dict in new PL, an AttrDict-like object in old PL
-                scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
-                self._reset_scheduler_state(scheduler)
-
-            logging.info(f"Optimiser/scheduler reset for Epoch: {next_epoch}.")
-
-            if total_num_latents == self.max_num_latents:
-                self.num_epochs_with_max_num_latents += 1
+            logging.info(f"Recreated optimizer/scheduler for Epoch: {next_epoch}.")
 
         # Make sure every rank arrives here before training resumes
         trainer.strategy.barrier()
