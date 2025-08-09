@@ -67,17 +67,14 @@ def _metamathqa_to_sft(
     num_tokens_per_latent: int,
     max_num_latents: int,
     total_num_latents: int) -> dict:
-    """Process a single meta-math/MetaMathQA example into SFT format with explicit <think>/<answer> sections.
+    """Process a single whynlp/gsm8k-aug-nl example into SFT format with explicit <think>/<answer> sections.
     If num_tokens_per_latent is provided, it will be used to replace the language tokens with latent steps.
     Returns a dict with input_ids, attention_mask and labels.
     """
-    question = example["query"].strip()
-    think_text = example["response"].strip()
-    # parse the answer from the think text in meta-math/MetaMathQA dataset
-    # response always contains the answer is at the end
-    m = ANSWER_PATTERN.search(think_text)
-    answer_found = m is not None
-    answer_text = m.group(1).strip() if m else "answer not found"
+    question = example["question"].strip()
+    think_steps = example["steps"]
+    think_text = " ".join(think_steps)
+    answer_text = example["answer"].strip()
 
     final_ans = f"\\boxed{{{answer_text}}}"
 

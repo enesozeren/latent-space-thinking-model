@@ -458,29 +458,6 @@ class DatasetRefreshCallback(L.Callback):
         if hasattr(optimizer, "_optimizer__initialize"):
             optimizer._optimizer__initialize()
 
-    @staticmethod
-    def _reset_scheduler_state(scheduler: torch.optim.lr_scheduler._LRScheduler) -> None:
-        """
-        Generic reset that works for StepLR, CosineAnnealingLR, OneCycleLR,
-        ReduceLROnPlateau, etc.
-        """
-        # Restore each param-group's LR to the original base LR
-        for group, base_lr in zip(scheduler.optimizer.param_groups, scheduler.base_lrs):
-            group["lr"] = base_lr
-
-        # Lightning always calls scheduler.step() after optimiser.step().
-        # Setting last_epoch = -1 and _step_count = 0 guarantees that the next
-        # call behaves as if it's the very first scheduler step.
-        scheduler.last_epoch = -1
-        if hasattr(scheduler, "_step_count"):
-            scheduler._step_count = 0
-
-        # Special-case attributes for plateau schedulers
-        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler.best = float("inf")
-            scheduler.num_bad_epochs = 0
-            scheduler.cooldown_counter = 0
-
     #  Main hook
     def on_train_batch_end(
         self,
@@ -494,7 +471,7 @@ class DatasetRefreshCallback(L.Callback):
         current_epoch = trainer.current_epoch
         num_batches_this_epoch = trainer.num_training_batches
         interval_to_add_latent = num_batches_this_epoch // self.add_latents_delta
-
+    
         # Update the dataset if it is time
         if (current_batch) % interval_to_add_latent == 0:
             # Get the number of latent steps in this epoch
@@ -522,17 +499,8 @@ class DatasetRefreshCallback(L.Callback):
             # 2. Refresh the dataset (every rank – Lightning will DDP-spawn)
             trainer.datamodule.update_dataset(total_num_latents=total_num_latents)
 
-            # 3. Reset every optimiser
-            for opt in trainer.optimizers:
-                self._reset_optimizer_state(opt)
-
-            # 4. Reset every LR scheduler
-            sched_cfgs = getattr(trainer, "lr_schedulers",
-                                getattr(trainer, "lr_scheduler_configs", []))
-            for cfg in sched_cfgs:
-                # cfg is a dict in new PL, an AttrDict-like object in old PL
-                scheduler = cfg["scheduler"] if isinstance(cfg, dict) else cfg.scheduler
-                self._reset_scheduler_state(scheduler)
+            # 3. Reset optimiser
+            trainer.strategy.setup_optimizers(trainer)
 
             logging.info(f"Dataset + optimiser/scheduler reset at Epoch: {current_epoch} and Batch: {current_batch}).")
 
