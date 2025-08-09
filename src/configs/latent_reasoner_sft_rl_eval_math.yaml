@@ -1,6 +1,6 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft_rl/20250730_134117/checkpoint-457"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft_rl/20250804_024358/checkpoint-1500"
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
   num_latent_steps: 6  # Number of latent steps
 
