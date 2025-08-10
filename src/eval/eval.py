@@ -27,10 +27,8 @@ from latex2sympy2_extended import NormalizationConfig
 from math_verify import LatexExtractionConfig, parse, verify
 
 from prompts.prompts import (
-    SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL,
-    SYSTEM_PROMPT_MATH500_1_SHOT_EVAL,
-    SYSTEM_PROMPT_LATENT_REASONER_GSM8K_1_SHOT_EVAL,
-    SYSTEM_PROMPT_LATENT_REASONER_MATH500_1_SHOT_EVAL
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
@@ -105,17 +103,11 @@ def compute_pass_at_k(pred_lists: List[List[str]], gt: List[str], k: int) -> flo
 
 
 def format_prompt(question: str, dataset_name: str, is_latent_reasoner: bool) -> str:
-    """Return a single string prompt (few-shot) for a question."""
-    if dataset_name == "openai/gsm8k":
-        if is_latent_reasoner:
-            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_GSM8K_1_SHOT_EVAL
-        else:
-            system_prompt = SYSTEM_PROMPT_GSM8K_1_SHOT_EVAL
+    """Return a single string prompt for a question."""
+    if is_latent_reasoner:
+        system_prompt = SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
     else:
-        if is_latent_reasoner:
-            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_MATH500_1_SHOT_EVAL
-        else:
-            system_prompt = SYSTEM_PROMPT_MATH500_1_SHOT_EVAL
+        system_prompt = SYSTEM_PROMPT
     return f"{system_prompt}\nUser:{question}\nAssistant:"
 
 

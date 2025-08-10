@@ -17,6 +17,10 @@ def get_format_info(response, tokenizer, is_latent_reasoner):
             r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",
             re.DOTALL
         )
+        # full_pattern = re.compile(
+        #     r"^<\|start-latent\|>(?:<\|latent\|>)*<\|end-latent\|><answer>.*?\\boxed\{.*?\}.*?</answer>$",
+        #     re.DOTALL
+        # )
     else:
         full_pattern = re.compile(
             r"^<think>.*?</think>\s*<answer>.*?\\boxed\{.*?\}.*?</answer>$",

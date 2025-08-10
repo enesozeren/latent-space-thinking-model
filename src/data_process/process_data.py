@@ -8,7 +8,8 @@ import random
 
 from prompts.prompts import (
     SYSTEM_PROMPT, 
-    SYSTEM_PROMPT_LATENT_REASONER
+    SYSTEM_PROMPT_LATENT_REASONER_THINK,
+    SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )
 from src.train.utils import count_max_total_latents
 
@@ -79,12 +80,9 @@ def _metamathqa_to_sft(
     final_ans = f"\\boxed{{{answer_text}}}"
 
     # add system prompt,<think> and <answer> tags to the COT and final answer
-    system_prompt = SYSTEM_PROMPT if not is_latent_reasoner else SYSTEM_PROMPT_LATENT_REASONER
-    prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"    
     final_ans = "<answer>" + final_ans + "</answer>"
 
     # build token sequence
-    prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
     answer_ids = tokenizer(final_ans, add_special_tokens=False).input_ids
     eos_id = tokenizer.eos_token_id
     if is_latent_reasoner:
@@ -97,50 +95,54 @@ def _metamathqa_to_sft(
         # convert the think text to ids
         think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
         # Random Removal Smoothing (Deng et al., 2024) - We add one more latent for 2% of the time
-        if random.randint(1, 100) > 99:
+        if random.randint(1, 100) > 99 and total_num_latents < max_num_latents:
             total_num_latents = total_num_latents + 1
-        # Calculate the number of latent steps for each example
-        num_latent_steps_in_think_block = min(
-            total_num_latents, 
-            math.ceil(len(think_ids) // num_tokens_per_latent)
-        )
         # Reduce the tokens in the think block
-        if num_latent_steps_in_think_block < max_num_latents:
-            think_ids = think_ids[num_tokens_per_latent * num_latent_steps_in_think_block:]
+        if total_num_latents < max_num_latents:
+            think_ids = think_ids[num_tokens_per_latent * total_num_latents:]
         else:
             think_ids = []
         # Add start think and end think tokens in the think ids
-        ## first convert the think ids to a string
-        think_text = tokenizer.decode(think_ids, skip_special_tokens=False)
-        ## then add the start think and end think tokens
-        think_text = "<think>" + think_text + "</think>"
-        ## then convert the think text back to ids
-        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
+        if think_ids == []:
+            # no language steps left, so use prompt without think tokens
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
+        else:
+            # some language steps left, so use prompt with think tokens
+            system_prompt = SYSTEM_PROMPT_LATENT_REASONER_THINK
+        prefix_text   = system_prompt + "\nUser:" + question + "\nAssistant:"            
+        prefix_ids = tokenizer(prefix_text, add_special_tokens=False).input_ids
+
+        if think_ids != []:
+            ## first convert the think ids to a string
+            think_text = tokenizer.decode(think_ids, skip_special_tokens=False)
+            ## then add the start think and end think tokens
+            think_text = "<think>" + think_text + "</think>"
+            ## then convert the think text back to ids
+            think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
 
         # Create the input_ids
         input_ids = prefix_ids + \
-            [start_latent_id] + [latent_id] * num_latent_steps_in_think_block + [end_latent_id] + \
+            [start_latent_id] + [latent_id] * total_num_latents + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
         # Mask prefix and latent tokens but not the think/answer sections
         labels = [-100] * len(prefix_ids) + \
-            [start_latent_id] + [-100] * num_latent_steps_in_think_block + [end_latent_id] + \
+            [start_latent_id] + [-100] * total_num_latents + [end_latent_id] + \
             think_ids + answer_ids + [eos_id]
-    else:
-        # convert the think text to ids after adding the start and end think tokens
-        think_text = "<think>" + think_text + "</think>"
-        think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
-        # No latent tokens
-        input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
-        # Only mask the prefix
-        labels = [-100] * len(prefix_ids) + think_ids + answer_ids + [eos_id]
+    # else:
+    #     # convert the think text to ids after adding the start and end think tokens
+    #     think_text = "<think>" + think_text + "</think>"
+    #     think_ids = tokenizer(think_text, add_special_tokens=False).input_ids
+    #     # No latent tokens
+    #     input_ids = prefix_ids + think_ids + answer_ids + [eos_id]
+    #     # Only mask the prefix
+    #     labels = [-100] * len(prefix_ids) + think_ids + answer_ids + [eos_id]
 
     attention_mask = [1] * len(input_ids)
 
     return {
         "input_ids":      input_ids,
         "attention_mask": attention_mask,
-        "labels":         labels,
-        "answer_found":   answer_found
+        "labels":         labels
     }
 
 
@@ -186,14 +188,6 @@ def prepare_dataset_sft(dataset_name, num_examples, tokenizer, seed: int,
             remove_columns=raw_ds.column_names,
         ),
     }
-
-    # Drop examples where the answer was missing
-    processed["train"]      = processed["train"].filter(lambda ex: ex["answer_found"], num_proc=16)
-    processed["validation"] = processed["validation"].filter(lambda ex: ex["answer_found"], num_proc=16)
-
-    # (optional) tidy up
-    processed["train"]      = processed["train"].remove_columns("answer_found")
-    processed["validation"] = processed["validation"].remove_columns("answer_found")
 
 
     # Log the dataset split sizes

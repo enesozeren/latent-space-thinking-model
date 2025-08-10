@@ -1,13 +1,13 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft_rl/20250715_010356/checkpoint-304"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/qwen_1p5b_sft_rl/20250809_150700/checkpoint-250"
   is_latent_reasoner: False  # Set to true for latent reasoner evaluation
 
 # Dataset configuration
 dataset:
   dataset: "HuggingFaceH4/MATH-500"  # choices: ["openai/gsm8k", "HuggingFaceH4/MATH-500"]
   split: "test"            # choices: ["test", "train"]
-  num_examples: null       # null means use all examples, or specify a number
+  num_examples: 128       # null means use all examples, or specify a number
 
 # Generation parameters
 generation:
