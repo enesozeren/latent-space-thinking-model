@@ -5,8 +5,8 @@ model:
   num_latent_steps: 6
 
 dataset:
-  name: "open-r1/OpenR1-Math-220k" # Only works with this dataset
-  num_examples: 50000
+  name: "open-r1/OpenR1-Math-220k"
+  num_examples: 15000
 
 training:
   seed: 42
@@ -27,10 +27,11 @@ training:
 
 grpo:
   # Core GRPO hyperparameters
-  beta: 0.04  # KL penalty coefficient
-  epsilon: 0.2  # clip range
+  beta: 0.0  # KL penalty coefficient
+  epsilon: 0.1  # clip range
   scale_rewards: true
-  
+  # number of policy updates for one batch
+  num_iterations: 1
   # Generation parameters
   num_generations: 8  # Number of answers to generate for each input
   max_completion_length: 1024  # Maximum length of the generated answer

@@ -1,5 +1,6 @@
 #!/bin/bash
-#SBATCH -p lrz-hgx-h100-94x4
+#SBATCH -p mcml-hgx-a100-80x4
+#SBATCH -q mcml
 #SBATCH --gres=gpu:4
 #SBATCH --time=0-08:00:00
 #SBATCH -o bash_outputs/output_qwen2p5_1p5b_sft_rl.log

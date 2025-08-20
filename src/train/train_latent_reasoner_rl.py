@@ -40,6 +40,7 @@ def setup_training_args(config: dict) -> GRPOConfig:
         epsilon=config["grpo"]["epsilon"],
         scale_rewards=config["grpo"]["scale_rewards"],
         num_generations=config["grpo"]["num_generations"],
+        num_iterations=config["grpo"]["num_iterations"],
         max_completion_length=config["grpo"]["max_completion_length"],
         temperature=config["grpo"]["temperature"],
         run_name=config.get("wandb", {}).get("run_name"),

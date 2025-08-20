@@ -2,7 +2,7 @@
 #SBATCH -p mcml-dgx-a100-40x8
 #SBATCH -q mcml
 #SBATCH --gres=gpu:1
-#SBATCH --time=0-00:40:00
+#SBATCH --time=0-00:45:00
 #SBATCH -o bash_outputs/output_eval_5.log
 #SBATCH -e bash_outputs/error_eval_5.log
 
