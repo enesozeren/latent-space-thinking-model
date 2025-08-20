@@ -1,10 +1,5 @@
 import logging
-from typing import Optional
-import re
-import torch
-import math
 from datasets import load_dataset, DatasetDict
-import random
 
 from prompts.prompts import (
     SYSTEM_PROMPT, 
@@ -36,7 +31,7 @@ def prepare_dataset_rl(config: dict, is_latent_reasoner: bool = False) -> Datase
     # select the last num_examples_from_last examples
     raw_ds = raw_ds.select(range(config["dataset"]["num_examples"]))
     
-    split_ds = raw_ds.train_test_split(test_size=0.025, seed=config["training"]["seed"])
+    split_ds = raw_ds.train_test_split(test_size=0.025, seed=config.get("training", {}).get("seed", 42))
     
     processed = {
         "train": split_ds["train"].map(

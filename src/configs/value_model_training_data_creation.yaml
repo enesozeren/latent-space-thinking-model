@@ -1,0 +1,18 @@
+# Model configuration
+model:
+  base_model_name_or_path: "/Users/eno/Downloads/numepochsperstage1_epoch5/final_model"
+  is_latent_reasoner: True  # Set to true for latent reasoner evaluation
+  num_latent_steps: 6  # Number of latent steps
+
+dataset:
+  name: "open-r1/OpenR1-Math-220k"
+  num_examples: 1000
+
+# Generation parameters
+generation:
+  temperature: 0.2
+  top_p: 0.95
+  max_length: 1024
+  batch_size: 1
+
+output_dir: "outputs"

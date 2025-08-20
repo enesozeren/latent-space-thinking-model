@@ -82,7 +82,6 @@ def accuracy_reward(completions: List[Union[str, List[dict]]], answer: List[str]
                         nits=False,
                         malformed_operators=False,
                         basic_latex=True,
-                        equations=True,
                         boxed="all",
                         units=True,
                     ),

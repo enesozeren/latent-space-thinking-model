@@ -10,12 +10,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.train.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset_rl
-from src.train.utils import setup_latent_tokens
+from src.train.utils import load_config, setup_latent_tokens
 
-def load_config(config_path):
-    """Load and return the YAML configuration file."""
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
 
 def setup_training_args(config: dict) -> GRPOConfig:
     """Translate YAML `training` + `grpo` sections into a GRPOConfig."""
