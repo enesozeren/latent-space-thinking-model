@@ -1,18 +1,19 @@
 # Model configuration
 model:
-  base_model_name_or_path: "/Users/eno/Downloads/numepochsperstage1_epoch5/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/numepochsperstage1_epoch5/final_model"
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
   num_latent_steps: 6  # Number of latent steps
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 1000
+  num_examples: 10000 # take num_examples example
+  start_example: 100000 # starting from start_example
 
 # Generation parameters
 generation:
   temperature: 0.2
   top_p: 0.95
   max_length: 1024
-  batch_size: 1
+  batch_size: 32
 
 output_dir: "outputs"

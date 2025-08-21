@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 from lightning.pytorch import LightningModule
-from torchmetrics import Precision, Recall, F1Score
+from torchmetrics import Precision, Recall, F1Score, Accuracy
 
 from src.value_model.model import ValueModel
 
@@ -47,9 +47,11 @@ class H5ValueDataset(Dataset):
 
 
 class LigthningValueModel(LightningModule):
-    def __init__(self, input_dim: int, learning_rate: float):
+    def __init__(self, input_dim: int, hidden_dims: list, dropout: float, learning_rate: float):
         super().__init__()
-        self.model = ValueModel(input_dim)
+        self.model = ValueModel(
+            input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout
+        )
         self.loss_fn = nn.BCEWithLogitsLoss()
         self.learning_rate = learning_rate
         
@@ -57,6 +59,7 @@ class LigthningValueModel(LightningModule):
         self.precision = Precision(task='binary')
         self.recall = Recall(task='binary')
         self.f1 = F1Score(task='binary')
+        self.accuracy = Accuracy(task='binary')
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
@@ -74,12 +77,14 @@ class LigthningValueModel(LightningModule):
         precision = self.precision(preds, y)
         recall = self.recall(preds, y)
         f1 = self.f1(preds, y)
+        accuracy = self.accuracy(preds, y)
 
         # Log all metrics
         self.log(f"{stage}_loss", loss, prog_bar=True, on_epoch=True, on_step=False)
         self.log(f"{stage}_precision", precision, prog_bar=True, on_epoch=True, on_step=False)
         self.log(f"{stage}_recall", recall, prog_bar=True, on_epoch=True, on_step=False)
         self.log(f"{stage}_f1", f1, prog_bar=True, on_epoch=True, on_step=False)
+        self.log(f"{stage}_accuracy", accuracy, prog_bar=True, on_epoch=True, on_step=False)
         
         return loss
 
@@ -87,7 +92,7 @@ class LigthningValueModel(LightningModule):
         return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
-        self._shared_step(batch, "val")
+        return self._shared_step(batch, "val")
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)

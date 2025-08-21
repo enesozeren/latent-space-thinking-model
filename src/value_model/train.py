@@ -37,6 +37,8 @@ def main():
     cfg = load_config(args.config)
 
     # hyperparameters
+    model_hidden_dims = cfg.get("model", {}).get("hidden_dims", 256)
+    dropout  = float(cfg.get("training", {}).get("dropout", 0.1))
     batch_size  = int(cfg.get("training", {}).get("batch_size", 256))
     lr          = float(cfg.get("training", {}).get("learning_rate", 1e-2))
     num_epochs  = int(cfg.get("training", {}).get("num_epochs", 10))
@@ -70,7 +72,10 @@ def main():
     input_dim = full_ds.latent_dim
 
     # model
-    lit = LigthningValueModel(input_dim=input_dim, learning_rate=lr)
+    lit = LigthningValueModel(
+        input_dim=input_dim, hidden_dims=model_hidden_dims, 
+        dropout=dropout, learning_rate=lr
+    )
 
     # Calculate model parameter count
     total_params = sum(p.numel() for p in lit.model.parameters())

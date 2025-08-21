@@ -1,15 +1,19 @@
 dataset:
-  path: "/Users/eno/Documents/my-repos/latent-reasoner/outputs/20250820_200607/value_model_training_data.h5"
+  path: "/dss/dsshome1/0B/ra32qov2/latent-reasoner/outputs/20250821_220436/value_model_training_data.h5"
+
+model:
+  hidden_dims: [] # if [] then linear layer, else list elements are mlp hidden dimension
 
 training:
-  batch_size: 512
-  learning_rate: 0.001
-  num_epochs: 100
+  dropout: 0.1
+  batch_size: 1024
+  learning_rate: 0.01
+  num_epochs: 200
   val_ratio: 0.2
   seed: 42
 
 logging:
-  output_dir: "/Users/eno/Documents/my-repos/latent-reasoner/outputs/value_model"
+  output_dir: "outputs/value_model"
   log_every_n_steps: 10
 
 wandb:

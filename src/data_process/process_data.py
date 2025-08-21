@@ -28,8 +28,10 @@ def _openr1_to_grpo(example: dict, is_latent_reasoner: bool) -> dict:
 def prepare_dataset_rl(config: dict, is_latent_reasoner: bool = False) -> DatasetDict:
     """Load OpenR1-Math-220k dataset and re-format into the columns GRPOTrainer expects."""
     raw_ds = load_dataset(config["dataset"]["name"], "extended", split="train")
-    # select the last num_examples_from_last examples
-    raw_ds = raw_ds.select(range(config["dataset"]["num_examples"]))
+    # select the examples
+    start_idx = config.get("dataset", {}).get("start_example", 0)
+    end_idx = start_idx + config["dataset"]["num_examples"]
+    raw_ds = raw_ds.select(range(start_idx, end_idx))
     
     split_ds = raw_ds.train_test_split(test_size=0.025, seed=config.get("training", {}).get("seed", 42))
     
