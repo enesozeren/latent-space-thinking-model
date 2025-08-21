@@ -1,0 +1,17 @@
+dataset:
+  path: "/Users/eno/Documents/my-repos/latent-reasoner/outputs/20250820_200607/value_model_training_data.h5"
+
+training:
+  batch_size: 512
+  learning_rate: 0.001
+  num_epochs: 100
+  val_ratio: 0.2
+  seed: 42
+
+logging:
+  output_dir: "/Users/eno/Documents/my-repos/latent-reasoner/outputs/value_model"
+  log_every_n_steps: 10
+
+wandb:
+  project: latent_grpo
+  run_name: linear_value_model_pretraining

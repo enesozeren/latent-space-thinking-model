@@ -26,7 +26,7 @@ def create_value_model_training_data(config_path: str) -> None:
                                             is_latent_reasoner=cfg["model"]["is_latent_reasoner"])
     
     # Move model to device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model = model.to(device)
     model.eval()
     
@@ -193,7 +193,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="src/configs/value_model_training_data_creation.yaml",
+        default="src/configs/value_model/value_model_training_data_creation.yaml",
         help="Path to the configuration YAML file",
     )
     return parser.parse_args()
