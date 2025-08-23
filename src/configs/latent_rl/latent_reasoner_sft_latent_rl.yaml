@@ -1,0 +1,34 @@
+model:
+  model_name: "LatentReasoner"
+  base_model_name_or_path: "/Users/eno/Downloads/numepochsperstage1_epoch5/final_model"
+  is_latent_reasoner: True
+  num_latent_steps: 6
+
+value_head_model:
+  pretrained_value_head_model_path: "/Users/eno/Downloads/value_model/model.ckpt"
+
+dataset:
+  name: "open-r1/OpenR1-Math-220k"
+  num_examples: 10000
+
+training:
+  seed: 42
+  output_dir: "outputs/latent_reasoner_1p5b_sft_latent_rl"
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 16
+  lr_scheduler_type: "cosine_with_min_lr"
+  learning_rate: 5.0e-6
+  lr_scheduler_kwargs: 
+    min_lr_rate: 0.1
+  num_train_epochs: 1
+  save_steps: 250
+  warmup_steps: 10
+  weight_decay: 0.01
+
+generation_parameters:
+  max_completion_length: 1024  # Maximum length of the generated answer
+  temperature: 0.0 # since latent steps are deterministic, temperature is unecessary
+
+# wandb:
+#   project: latent_rl
+#   run_name: latent_reasoner_1p5b_sft_latent_rl

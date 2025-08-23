@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from lightning.pytorch import LightningModule
 from torchmetrics import Precision, Recall, F1Score, Accuracy
 
-from src.value_model.model import ValueModel
+from src.value_model.model import ValueHeadModel
 
 
 class H5ValueDataset(Dataset):
@@ -60,10 +60,10 @@ class FocalLoss(nn.Module):
         return focal_loss.mean()
 
 
-class LigthningValueModel(LightningModule):
+class LigthningValueHeadModel(LightningModule):
     def __init__(self, input_dim: int, hidden_dims: list, dropout: float, learning_rate: float):
         super().__init__()
-        self.model = ValueModel(
+        self.model = ValueHeadModel(
             input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout
         )
         self.loss_fn = FocalLoss(gamma=2.0)

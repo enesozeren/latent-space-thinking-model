@@ -1,7 +1,7 @@
 # train_value_model.py
 import os
 import argparse
-import h5py
+from datetime import datetime
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, random_split
@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 from src.train.utils import load_config
-from src.value_model.lightning_modules import H5ValueDataset, LigthningValueModel
+from src.value_model.lightning_modules import H5ValueDataset, LigthningValueHeadModel
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train ValueModel on HDF5 latent vectors and accuracy rewards.")
@@ -49,7 +49,8 @@ def main():
     data_path = cfg.get("dataset", {}).get("path")
     log_every_n_steps = cfg.get("logging", {}).get("log_every_n_steps", 100)
     
-    output_dir = cfg.get("logging", {}).get("output_dir")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(cfg.get("logging", {}).get("output_dir"), timestamp)
     os.makedirs(output_dir, exist_ok=True)
     
     # seed for reproducebility
@@ -84,7 +85,7 @@ def main():
     input_dim = full_ds.latent_dim
 
     # model
-    lit = LigthningValueModel(
+    lit = LigthningValueHeadModel(
         input_dim=input_dim, hidden_dims=model_hidden_dims, 
         dropout=dropout, learning_rate=lr
     )
@@ -164,7 +165,7 @@ def main():
     
     # Load the best checkpoint for final testing
     print(f"\nLoading best checkpoint: {checkpoint_callback.best_model_path}")
-    best_model = LigthningValueModel.load_from_checkpoint(
+    best_model = LigthningValueHeadModel.load_from_checkpoint(
         checkpoint_callback.best_model_path,
         input_dim=input_dim,
         hidden_dims=model_hidden_dims,
@@ -179,6 +180,11 @@ def main():
     print("="*50)
     
     test_results = trainer.test(best_model, test_loader, verbose=True)
+    
+    # Save the raw PyTorch model (without Lightning wrapper)
+    raw_model_path = os.path.join(output_dir, "best_model.ckpt")
+    torch.save(best_model.model, raw_model_path)
+    print(f"\nRaw PyTorch model saved to: {raw_model_path}")
     
     # Log test results to wandb if logger is available
     if logger is not None:

@@ -18,5 +18,5 @@ logging:
   log_every_n_steps: 10
 
 wandb:
-  project: latent_grpo
+  project: latent_rl
   run_name: linear_value_model_pretraining
