@@ -1,15 +1,16 @@
 dataset:
-  path: "/dss/dsshome1/0B/ra32qov2/latent-reasoner/outputs/20250821_220436/value_model_training_data.h5"
+  path: "/dss/dsshome1/0B/ra32qov2/latent-reasoner/outputs/20250822_022344/value_model_training_data.h5"
 
 model:
   hidden_dims: [] # if [] then linear layer, else list elements are mlp hidden dimension
 
 training:
-  dropout: 0.1
+  dropout: 0.0
   batch_size: 1024
-  learning_rate: 0.01
-  num_epochs: 200
+  learning_rate: 0.0003
+  num_epochs: 400
   val_ratio: 0.2
+  test_ratio: 0.1
   seed: 42
 
 logging:

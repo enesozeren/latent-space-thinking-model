@@ -6,7 +6,7 @@ model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 10000 # take num_examples example
+  num_examples: 20000 # take num_examples example
   start_example: 100000 # starting from start_example
 
 # Generation parameters
@@ -14,6 +14,5 @@ generation:
   temperature: 0.2
   top_p: 0.95
   max_length: 1024
-  batch_size: 32
 
 output_dir: "outputs"

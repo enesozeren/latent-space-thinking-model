@@ -2,6 +2,7 @@ from typing import Optional, Tuple
 import h5py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from lightning.pytorch import LightningModule
 from torchmetrics import Precision, Recall, F1Score, Accuracy
@@ -46,13 +47,26 @@ class H5ValueDataset(Dataset):
         return self.x_data[idx], self.y_data[idx]
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+    
+    def forward(self, inputs, targets):
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        pt = torch.exp(-bce_loss)
+        focal_loss = self.alpha * (1-pt)**self.gamma * bce_loss
+        return focal_loss.mean()
+
+
 class LigthningValueModel(LightningModule):
     def __init__(self, input_dim: int, hidden_dims: list, dropout: float, learning_rate: float):
         super().__init__()
         self.model = ValueModel(
             input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout
         )
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.loss_fn = FocalLoss(gamma=2.0)
         self.learning_rate = learning_rate
         
         # Initialize metrics
@@ -94,5 +108,8 @@ class LigthningValueModel(LightningModule):
     def validation_step(self, batch, batch_idx):
         return self._shared_step(batch, "val")
 
+    def test_step(self, batch, batch_idx):
+        return self._shared_step(batch, "test")
+        
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)

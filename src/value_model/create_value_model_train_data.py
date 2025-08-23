@@ -14,9 +14,10 @@ from src.train.utils import load_config, setup_latent_tokens
 
 def create_value_model_training_data(config_path: str) -> None:
     cfg = load_config(config_path)
-    
     # Model and tokenizer
+    # Then create the model with this config
     model = LatentReasoner.from_pretrained(cfg["model"]["base_model_name_or_path"])
+    # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["base_model_name_or_path"])
     
     # Set up special tokens for think, answer and latent reasoning
@@ -37,7 +38,6 @@ def create_value_model_training_data(config_path: str) -> None:
     temperature = cfg["generation"]["temperature"]
     top_p = cfg["generation"]["top_p"]
     max_length = cfg["generation"]["max_length"]
-    batch_size = cfg.get("generation", {}).get("batch_size", 2)  # Default batch size if not specified
     
     # Output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -49,10 +49,17 @@ def create_value_model_training_data(config_path: str) -> None:
     
     # Process training data
     total_examples = len(data['train'])
-    print(f"Processing {total_examples} examples with batch size {batch_size}...")
+    print(f"Processing {total_examples} examples...")
     
     # Initialize counters for valid examples
     valid_examples_count = 0
+    
+    # First pass: determine dimensions by processing one example
+    first_example = data['train'][0]
+    prompt = first_example["prompt"]
+    tokenized = tokenizer(prompt, return_tensors="pt", padding=True)
+    prompt_ids = tokenized["input_ids"].to(device)
+    attention_mask = tokenized["attention_mask"].to(device)
     
     # Get dimensions
     latent_dim = model.get_input_embeddings().embedding_dim
@@ -97,23 +104,18 @@ def create_value_model_training_data(config_path: str) -> None:
             chunks=True
         )
         
-        # Process examples in batches
-        for batch_start in tqdm(range(0, total_examples, batch_size), desc="Processing batches"):
-            batch_end = min(batch_start + batch_size, total_examples)
-            batch_examples = data['train'][batch_start:batch_end]
-            
-            # Prepare batch data
-            batch_prompts = batch_examples["prompt"]
-            batch_answers = batch_examples["answer"]
-            batch_indices = list(range(batch_start, batch_end))
+        # Process all examples and append to datasets
+        for idx, example in tqdm(enumerate(data['train']), total=total_examples, desc="Processing examples"):
             
             try:
-                # Tokenize batch prompts
-                tokenized = tokenizer(batch_prompts, return_tensors="pt", padding=True, truncation=True)
+                prompt = example["prompt"]
+                
+                # Tokenize prompt
+                tokenized = tokenizer(prompt, return_tensors="pt", padding=True)
                 prompt_ids = tokenized["input_ids"].to(device)
                 attention_mask = tokenized["attention_mask"].to(device)
                 
-                # Generate responses for the batch
+                # Generate responses
                 with torch.no_grad():
                     completion_token_ids, prompt_completion_embeds = model.generate(
                         prompt_ids,
@@ -127,81 +129,47 @@ def create_value_model_training_data(config_path: str) -> None:
                         pad_token_id=tokenizer.eos_token_id
                     )
                 
-                # Process batch results - handle entire batch at once
-                batch_latent_vectors = []
-                batch_accuracy_rewards = []
-                batch_format_rewards = []
-                batch_valid_indices = []
+                # Extract latent step vectors
+                prompt_length = prompt_ids.shape[1]
+                latent_start_idx = prompt_length + 1
+                latent_end_idx = latent_start_idx + num_latent_steps
                 
-                # Get actual prompt lengths for each example in the batch
-                prompt_lengths = attention_mask.sum(dim=1).cpu().numpy()
+                if prompt_completion_embeds.shape[1] < latent_end_idx:
+                    continue
                 
-                # Decode all responses in the batch at once using batch_decode
-                batch_response_texts = tokenizer.batch_decode(completion_token_ids, skip_special_tokens=True)
+                latent_vectors = prompt_completion_embeds[0, latent_start_idx:latent_end_idx, :].cpu().numpy()
+                response_text = tokenizer.decode(completion_token_ids[0], skip_special_tokens=False)
                 
-                # Calculate rewards for entire batch at once
-                batch_accuracy_rewards_raw = accuracy_reward(batch_response_texts, batch_answers)
-                batch_format_rewards_raw = latent_format_reward(batch_response_texts)
+                # Calculate rewards
+                accuracy_rewards = accuracy_reward([response_text], [example["answer"]])
+                accuracy_score = accuracy_rewards[0] if accuracy_rewards[0] is not None else 0.0
                 
-                # Process each example in the batch
-                for i, example_idx in enumerate(batch_indices):
-                    try:
-                        # Extract latent step vectors
-                        prompt_length = prompt_lengths[i]
-                        latent_start_idx = prompt_length + 1
-                        latent_end_idx = latent_start_idx + num_latent_steps
-                        
-                        if prompt_completion_embeds.shape[1] < latent_end_idx:
-                            continue
-                        
-                        latent_vectors = prompt_completion_embeds[i, latent_start_idx:latent_end_idx, :].cpu().numpy()
-                        
-                        # Get rewards from batch calculations
-                        accuracy_score = batch_accuracy_rewards_raw[i] if batch_accuracy_rewards_raw[i] is not None else 0.0
-                        format_score = batch_format_rewards_raw[i] if batch_format_rewards_raw[i] else 0.0
-                        
-                        # Collect batch results
-                        batch_latent_vectors.append(latent_vectors)
-                        batch_accuracy_rewards.append(accuracy_score)
-                        batch_format_rewards.append(format_score)
-                        batch_valid_indices.append(example_idx)
-                        
-                    except Exception as e:
-                        print(f"Error processing example {example_idx} in batch: {e}")
-                        continue
+                format_rewards = latent_format_reward([response_text])
+                format_score = format_rewards[0] if format_rewards else 0.0
                 
-                # Save batch results if any valid examples
-                if batch_latent_vectors:
-                    # Convert to numpy arrays
-                    batch_latent_vectors = np.array(batch_latent_vectors)
-                    batch_accuracy_rewards = np.array(batch_accuracy_rewards)
-                    batch_format_rewards = np.array(batch_format_rewards)
-                    batch_valid_indices = np.array(batch_valid_indices)
-                    
-                    # Resize datasets to accommodate new batch data
-                    current_size = latent_vectors_ds.shape[0]
-                    new_size = current_size + len(batch_latent_vectors)
-                    
-                    latent_vectors_ds.resize((new_size, num_latent_steps, latent_dim))
-                    accuracy_rewards_ds.resize((new_size,))
-                    format_rewards_ds.resize((new_size,))
-                    example_ids_ds.resize((new_size,))
-                    
-                    # Add batch data
-                    latent_vectors_ds[current_size:new_size] = batch_latent_vectors
-                    accuracy_rewards_ds[current_size:new_size] = batch_accuracy_rewards
-                    format_rewards_ds[current_size:new_size] = batch_format_rewards
-                    example_ids_ds[current_size:new_size] = batch_valid_indices
-                    
-                    valid_examples_count += len(batch_latent_vectors)
-                    
-                    # Flush data to disk periodically
-                    if valid_examples_count % 1000 == 0:
-                        hf.flush()
-                        print(f"Processed {valid_examples_count} valid examples so far...")
+                # Resize datasets to accommodate new data
+                current_size = latent_vectors_ds.shape[0]
+                new_size = current_size + 1
+                
+                latent_vectors_ds.resize((new_size, num_latent_steps, latent_dim))
+                accuracy_rewards_ds.resize((new_size,))
+                format_rewards_ds.resize((new_size,))
+                example_ids_ds.resize((new_size,))
+                
+                # Add new data
+                latent_vectors_ds[current_size] = latent_vectors
+                accuracy_rewards_ds[current_size] = accuracy_score
+                format_rewards_ds[current_size] = format_score
+                example_ids_ds[current_size] = idx
+                
+                valid_examples_count += 1
+                
+                # Flush data to disk periodically to avoid memory buildup
+                if valid_examples_count % 1000 == 0:
+                    hf.flush()
                 
             except Exception as e:
-                print(f"Error processing batch {batch_start}-{batch_end}: {e}")
+                print(f"Error processing example {idx}: {e}")
                 continue
         
         # Store metadata as attributes
@@ -212,7 +180,6 @@ def create_value_model_training_data(config_path: str) -> None:
         hf.attrs['max_length'] = max_length
         hf.attrs['temperature'] = temperature
         hf.attrs['top_p'] = top_p
-        hf.attrs['batch_size'] = batch_size
         hf.attrs['created_at'] = datetime.now().isoformat()
         hf.attrs['model_name'] = cfg["model"]["base_model_name_or_path"]
     

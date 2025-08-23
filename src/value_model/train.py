@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from src.train.utils import load_config
 from src.value_model.lightning_modules import H5ValueDataset, LigthningValueModel
@@ -43,6 +44,7 @@ def main():
     lr          = float(cfg.get("training", {}).get("learning_rate", 1e-2))
     num_epochs  = int(cfg.get("training", {}).get("num_epochs", 10))
     val_ratio   = float(cfg.get("training", {}).get("val_ratio", 0.2))
+    test_ratio  = float(cfg.get("training", {}).get("test_ratio", 0.1))  # New parameter
     seed = int(cfg.get("training", {}).get("seed", 42))
     data_path = cfg.get("dataset", {}).get("path")
     log_every_n_steps = cfg.get("logging", {}).get("log_every_n_steps", 100)
@@ -57,16 +59,26 @@ def main():
     # dataset and splits  
     full_ds = H5ValueDataset(data_path)
     n_total = len(full_ds)
+    
+    # Calculate split sizes
+    n_test = max(1, int(test_ratio * n_total))
     n_val = max(1, int(val_ratio * n_total))
-    n_train = n_total - n_val
-    train_ds, val_ds = random_split(
+    n_train = n_total - n_val - n_test
+    
+    # Ensure we have at least 1 sample in each split
+    if n_train <= 0:
+        raise ValueError(f"Training set would be empty. Total samples: {n_total}, val: {n_val}, test: {n_test}")
+    
+    # Create three-way split
+    train_ds, val_ds, test_ds = random_split(
         full_ds,
-        lengths=[n_train, n_val],
+        lengths=[n_train, n_val, n_test],
         generator=torch.Generator().manual_seed(seed),
     )
 
     train_stats = get_stats(train_ds, "Train")
     val_stats = get_stats(val_ds, "Val")
+    test_stats = get_stats(test_ds, "Test")
 
     # input dim
     input_dim = full_ds.latent_dim
@@ -96,8 +108,11 @@ def main():
             "dataset/train_mean_reward": train_stats["mean_reward"],
             "dataset/val_size": val_stats["size"],
             "dataset/val_mean_reward": val_stats["mean_reward"],
+            "dataset/test_size": test_stats["size"],
+            "dataset/test_mean_reward": test_stats["mean_reward"],
             "dataset/total_size": len(full_ds),
-            "dataset/val_ratio": val_ratio
+            "dataset/val_ratio": val_ratio,
+            "dataset/test_ratio": test_ratio
         })
         
         # Log model parameter statistics to wandb
@@ -109,11 +124,26 @@ def main():
     # loaders
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=8, pin_memory=True, drop_last=False
+        num_workers=16, pin_memory=True, drop_last=False
     )
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=8, pin_memory=True, drop_last=False
+        num_workers=16, pin_memory=True, drop_last=False
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=16, pin_memory=True, drop_last=False
+    )
+
+    # Setup model checkpoint callback
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join(output_dir, "checkpoints"),
+        filename="best_val_f1_{epoch:02d}_{val_f1:.4f}",
+        monitor="val_f1",
+        mode="max",  # We want to maximize F1 score
+        save_top_k=1,  # Keep only the best checkpoint
+        save_last=True,  # Also save the last checkpoint
+        auto_insert_metric_name=False
     )
 
     # trainer
@@ -126,9 +156,46 @@ def main():
         deterministic=True,
         default_root_dir=output_dir,
         logger=logger,
+        callbacks=[checkpoint_callback],
     )
 
+    # Train the model
     trainer.fit(lit, train_loader, val_loader)
+    
+    # Load the best checkpoint for final testing
+    print(f"\nLoading best checkpoint: {checkpoint_callback.best_model_path}")
+    best_model = LigthningValueModel.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        input_dim=input_dim,
+        hidden_dims=model_hidden_dims,
+        dropout=dropout,
+        learning_rate=lr
+    )
+    
+    # Test the best model
+    print("\n" + "="*50)
+    print("EVALUATING BEST MODEL ON TEST SET")
+    print(f"Best validation F1 score: {checkpoint_callback.best_model_score:.4f}")
+    print("="*50)
+    
+    test_results = trainer.test(best_model, test_loader, verbose=True)
+    
+    # Log test results to wandb if logger is available
+    if logger is not None:
+        test_metrics = test_results[0]  # trainer.test returns a list with one dict
+        logger.experiment.log({
+            f"final_test/{k}": v for k, v in test_metrics.items()
+        })
+        # Also log the best validation F1 score
+        logger.experiment.log({
+            "best_val_f1": checkpoint_callback.best_model_score
+        })
+    
+    print(f"\nBest validation F1 score: {checkpoint_callback.best_model_score:.4f}")
+    print(f"Best checkpoint saved at: {checkpoint_callback.best_model_path}")
+    print(f"\nFinal test results:")
+    for key, value in test_results[0].items():
+        print(f"  {key}: {value:.4f}")
 
 
 if __name__ == "__main__":
