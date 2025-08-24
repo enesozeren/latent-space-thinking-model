@@ -1,14 +1,14 @@
 dataset:
-  path: "outputs/20250822_022344/value_model_training_data.h5"
+  path: "outputs/value_model_training_data/20250822_022344/value_model_training_data.h5"
 
 model:
-  hidden_dims: [] # if [] then linear layer, else list elements are mlp hidden dimension
+  hidden_dims: [128, 32, 8] # if [] then linear layer, else list elements are mlp hidden dimension
 
 training:
   dropout: 0.0
   batch_size: 1024
-  learning_rate: 0.0003
-  num_epochs: 400
+  learning_rate: 0.0005
+  num_epochs: 500
   val_ratio: 0.2
   test_ratio: 0.1
   seed: 42

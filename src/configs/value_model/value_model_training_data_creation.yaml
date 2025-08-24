@@ -15,4 +15,4 @@ generation:
   top_p: 0.95
   max_length: 1024
 
-output_dir: "outputs"
+output_dir: "outputs/value_model_training_data"

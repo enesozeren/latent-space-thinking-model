@@ -1,6 +1,7 @@
 import torch
 import wandb
 import logging
+import os
 from tqdm import tqdm
 
 class LatentRLTrainer():
@@ -70,7 +71,9 @@ class LatentRLTrainer():
             prompt_ids, attention_mask=prompt_mask, 
             num_latent_steps=self.num_latent_steps,
             max_new_tokens=self.generation_config['max_completion_length'],
-            temperature=self.generation_config['temperature'],
+            temperature=self.generation_config['temperature'] if self.generation_config['temperature'] > 0 else None,
+            do_sample=True if self.generation_config['temperature'] > 0 else False,
+            pad_token_id=self.processing_class.pad_token_id,
         )
         prompt_completion_embeds = prompt_completion_embeds.detach()
 
@@ -231,10 +234,6 @@ class LatentRLTrainer():
                             'step': self.global_step
                         })
                         accumulated_loss = 0.0
-                    
-                    # Save checkpoint
-                    if save_steps > 0 and self.global_step % save_steps == 0:
-                        self._save_checkpoint()
                         
                 except Exception as e:
                     logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -257,24 +256,30 @@ class LatentRLTrainer():
         """Save model checkpoint"""
         save_dir = self.args.get("output_dir", "./checkpoints")
         
-        if is_epoch_end:
-            checkpoint_path = f"{save_dir}/checkpoint_epoch_{epoch}"
-        else:
-            checkpoint_path = f"{save_dir}/checkpoint_step_{self.global_step}"
+        # Create separate directories for model and value model
+        model_dir = f"{save_dir}/model"
+        # value_model_dir = f"{save_dir}/value_model"
         
-        # Create checkpoint dictionary
-        checkpoint = {
-            "global_step": self.global_step,
-            "model_state_dict": self.model.state_dict(),
-            "value_model_state_dict": self.value_model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "training_metrics": self.training_metrics,
-            "args": self.args
-        }
+        # Ensure directories exist
+        os.makedirs(model_dir, exist_ok=True)
+        # os.makedirs(value_model_dir, exist_ok=True)
+        
+        if is_epoch_end:
+            model_path = f"{model_dir}/checkpoint_epoch_{epoch}"
+            # value_model_path = f"{value_model_dir}/checkpoint_epoch_{epoch}"
+        else:
+            model_path = f"{model_dir}/checkpoint_step_{self.global_step}"
+            # value_model_path = f"{value_model_dir}/checkpoint_step_{self.global_step}"
         
         try:
-            torch.save(checkpoint, checkpoint_path)
-            logging.info(f"Checkpoint saved to {checkpoint_path}")
+            # Save main model in Hugging Face format
+            self.model.save_pretrained(model_path)
+            logging.info(f"Model saved in Hugging Face format to {model_path}")
+            
+            # # Save value model in Hugging Face format
+            # self.value_model.save_pretrained(value_model_path)
+            # logging.info(f"Value model saved in Hugging Face format to {value_model_path}")
+            
         except Exception as e:
             logging.error(f"Failed to save checkpoint: {str(e)}")
 
@@ -314,18 +319,8 @@ class LatentRLTrainer():
         
         self.training_metrics.append(metrics)
         
-        # Log every N steps
-        log_freq = self.args.get("logging_steps", 10)
-        if self.global_step % log_freq == 0:
-            logging.info(f"Step {self.global_step}: Loss = {metrics['loss']:.4f}, "
-                        f"Latent tokens = {metrics['num_latent_tokens']}")
-            
-            # Log reward statistics
-            for key, value in reward_stats.items():
-                logging.info(f"  {key}: {value:.4f}")
-        
-        # Save examples for inspection (every 50 steps)
-        if self.global_step % 50 == 0:
+        # Save examples for inspection (every 10 steps)
+        if self.global_step % 10 == 0:
             wandb.log({
                 "examples": wandb.Table(
                     columns=["prompt", "completion"] + list(rewards.keys()),

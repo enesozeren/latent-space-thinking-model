@@ -139,9 +139,9 @@ def main():
     # Setup model checkpoint callback
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(output_dir, "checkpoints"),
-        filename="best_val_f1_{epoch:02d}_{val_f1:.4f}",
-        monitor="val_f1",
-        mode="max",  # We want to maximize F1 score
+        filename="best_val_roc_auc_{epoch:02d}_{val_roc_auc:.4f}",
+        monitor="val_roc_auc",
+        mode="max",  # We want to maximize ROC AUC score
         save_top_k=1,  # Keep only the best checkpoint
         save_last=True,  # Also save the last checkpoint
         auto_insert_metric_name=False

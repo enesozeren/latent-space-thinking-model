@@ -86,6 +86,12 @@ def setup_latent_tokens(model, tokenizer, is_latent_reasoner: bool = False):
 
         _assing_token_ids_to_tokenizer_model(tokenizer, model, latent_specials_dict)
 
+    # Set pad_token_id to avoid the warning about using eos_token_id as pad_token_id
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        logging.info("Set pad_token to eos_token to avoid generation warnings")
+
     return model, tokenizer
 
 

@@ -1,15 +1,15 @@
 model:
   model_name: "LatentReasoner"
-  base_model_name_or_path: "/Users/eno/Downloads/numepochsperstage1_epoch5/final_model"
+  base_model_name_or_path: "/dss/dssmcmlfs01/pr74ze/pr74ze-dss-0001/ra32qov2/latent_reasoner_storage/outputs/latent_reasoner_1p5b_sft/numepochsperstage1_epoch5/final_model"
   is_latent_reasoner: True
   num_latent_steps: 6
 
 value_head_model:
-  pretrained_value_head_model_path: "outputs/value_model/20250824_110150/best_model.ckpt"
+  pretrained_value_head_model_path: "outputs/value_model/20250824_215814/best_model.ckpt"
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 10000
+  num_examples: 2000
 
 training:
   seed: 42
