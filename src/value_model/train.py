@@ -125,15 +125,15 @@ def main():
     # loaders
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=16, pin_memory=True, drop_last=False
+        num_workers=0, pin_memory=True, drop_last=False
     )
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=16, pin_memory=True, drop_last=False
+        num_workers=0, pin_memory=True, drop_last=False
     )
     test_loader = DataLoader(
         test_ds, batch_size=batch_size, shuffle=False,
-        num_workers=16, pin_memory=True, drop_last=False
+        num_workers=0, pin_memory=True, drop_last=False
     )
 
     # Setup model checkpoint callback

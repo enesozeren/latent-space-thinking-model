@@ -1,5 +1,5 @@
 dataset:
-  path: "/dss/dsshome1/0B/ra32qov2/latent-reasoner/outputs/20250822_022344/value_model_training_data.h5"
+  path: "outputs/20250822_022344/value_model_training_data.h5"
 
 model:
   hidden_dims: [] # if [] then linear layer, else list elements are mlp hidden dimension

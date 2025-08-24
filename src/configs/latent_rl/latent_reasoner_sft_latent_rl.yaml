@@ -5,7 +5,7 @@ model:
   num_latent_steps: 6
 
 value_head_model:
-  pretrained_value_head_model_path: "/Users/eno/Downloads/value_model/model.ckpt"
+  pretrained_value_head_model_path: "outputs/value_model/20250824_110150/best_model.ckpt"
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
@@ -24,11 +24,13 @@ training:
   save_steps: 250
   warmup_steps: 10
   weight_decay: 0.01
+  max_grad_norm: 1.0
+  logging_steps: 1
 
 generation_parameters:
   max_completion_length: 1024  # Maximum length of the generated answer
   temperature: 0.0 # since latent steps are deterministic, temperature is unecessary
 
-# wandb:
-#   project: latent_rl
-#   run_name: latent_reasoner_1p5b_sft_latent_rl
+wandb:
+  project: latent_rl
+  run_name: latent_reasoner_1p5b_sft_latent_rl

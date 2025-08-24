@@ -68,8 +68,8 @@ class ValueModel(nn.Module):
             values
         """
         # Get hidden states from the latent reasoner
-        # Use the parent's parent forward method to get hidden states
-        outputs = super(LatentReasoner, self.latent_reasoner).forward(
+        # Call the latent reasoner's forward method to get hidden states
+        outputs = self.latent_reasoner.forward(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             output_hidden_states=True,
@@ -113,24 +113,3 @@ class ValueModel(nn.Module):
         """Freeze the LatentReasoner - only value head will be trainable"""
         for param in self.latent_reasoner.parameters():
             param.requires_grad = False
-
-# Example usage:
-# Load pre-trained components
-# latent_reasoner = LatentReasoner.from_pretrained("path/to/latent_reasoner")
-# value_head = ValueHeadModel.load_pretrained("path/to/value_head")  # Your loading method
-#
-# # Create ValueModel with pre-trained components
-# value_model = ValueModel(latent_reasoner, value_head)
-#
-# # Option 1: Freeze value head (train only LatentReasoner)
-# value_model.freeze_value_head()
-#
-# # Option 2: Freeze LatentReasoner (train only value head)
-# value_model.freeze_latent_reasoner()
-#
-# # Create optimizer and train
-# optimizer = torch.optim.Adam(value_model.parameters(), lr=1e-4)
-#
-# # Forward pass
-# outputs = value_model(inputs_embeds=embeddings, attention_mask=mask)
-# values = outputs.values  # [batch_size, seq_len]
