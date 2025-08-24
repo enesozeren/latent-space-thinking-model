@@ -139,7 +139,9 @@ class LatentRLTrainer():
         generation_results = self._generate_and_score_completions(inputs)
         
         # pass all the prompt+completion embeddings through the Value Model (tied with LatR model + value model head)
-        values = self.value_model(inputs_embeds=generation_results["prompt_completion_embeds"])
+        values_logits = self.value_model(inputs_embeds=generation_results["prompt_completion_embeds"])
+        # pass the values_logits through sigmoid
+        values = torch.sigmoid(values_logits)
         # freeze the value model head
         self.value_model.freeze_value_head()
         # Extract latent mask and create target rewards
@@ -323,10 +325,10 @@ class LatentRLTrainer():
         if self.global_step % 10 == 0:
             wandb.log({
                 "examples": wandb.Table(
-                    columns=["prompt", "completion"] + list(rewards.keys()),
-                    data=[[p, c] + [rewards[name][i].item() for name in rewards.keys()] 
+                    columns=["step", "prompt", "completion"] + list(rewards.keys()),
+                    data=[[self.global_step, p, c] + [rewards[name][i].item() for name in rewards.keys()] 
                         for i, (p, c) in enumerate(zip(prompts[:5], completions[:5]))]
                 )
-            }, step=self.global_step)            
+            }, step=self.global_step)
 
         wandb.log(metrics, step=self.global_step)
