@@ -36,13 +36,8 @@ class LatentRLTrainer():
         lr = self.args.get("learning_rate", 5e-5)
         weight_decay = self.args.get("weight_decay", 0.01)
         
-        # Get all parameters that require gradients
-        params_to_optimize = []
-        params_to_optimize.extend(self.model.parameters())
-        params_to_optimize.extend(self.value_model.parameters())
-        
         optimizer = torch.optim.AdamW(
-            params_to_optimize, 
+            self.value_model.parameters(), # since the value model and model parameters are tied
             lr=lr, 
             weight_decay=weight_decay
         )
@@ -138,12 +133,13 @@ class LatentRLTrainer():
         ## this returns prompt and completion token ids and embeddings, rewards, mask (latent steps: 1, others 0)
         generation_results = self._generate_and_score_completions(inputs)
         
+        # freeze the value model head
+        self.value_model.freeze_value_head()        
         # pass all the prompt+completion embeddings through the Value Model (tied with LatR model + value model head)
         values_logits = self.value_model(inputs_embeds=generation_results["prompt_completion_embeds"])
         # pass the values_logits through sigmoid
         values = torch.sigmoid(values_logits)
-        # freeze the value model head
-        self.value_model.freeze_value_head()
+
         # Extract latent mask and create target rewards
         latent_mask = generation_results["latent_mask"]  # Shape: [batch_size, seq_len]
         
@@ -178,15 +174,13 @@ class LatentRLTrainer():
         epochs = self.args.get("num_train_epochs", 1)
         gradient_accumulation_steps = self.args.get("gradient_accumulation_steps", 1)
         max_grad_norm = self.args.get("max_grad_norm", 1.0)
-        save_steps = self.args.get("save_steps", 1000)
         
         logging.info(f"Starting training for {epochs} epochs")
         logging.info(f"Total batches per epoch: {len(self.train_loader)}")
         
         # Set models to training mode
-        self.model.train()
         self.value_model.train()
-        
+
         total_steps = epochs * len(self.train_loader)
         
         for epoch in range(epochs):
@@ -208,7 +202,7 @@ class LatentRLTrainer():
                     epoch_losses.append(step_results["loss"])
                     
                     # Gradient accumulation
-                    if (batch_idx + 1) % gradient_accumulation_steps == 0:
+                    if (batch_idx + 1) % gradient_accumulation_steps == 0:                        
                         # Clip gradients
                         if max_grad_norm > 0:
                             torch.nn.utils.clip_grad_norm_(
@@ -323,12 +317,35 @@ class LatentRLTrainer():
         
         # Save examples for inspection (every 10 steps)
         if self.global_step % 10 == 0:
+            # Determine the actual batch size to avoid index errors
+            batch_size = len(prompts)
+            num_examples = min(batch_size, 5)  # Take up to 5 examples or batch size, whichever is smaller
+            
+            reward_names = list(rewards.keys())
+            
+            # Add new examples to persistent table
+            for i in range(num_examples):
+                # Create a row with step, prompt, completion, and all reward values
+                row = [self.global_step, prompts[i], completions[i]]
+                
+                # Add reward values for this example, handling potential tensor size mismatches
+                for reward_name in reward_names:
+                    if i < len(rewards[reward_name]):
+                        reward_val = rewards[reward_name][i].item()
+                        # Handle NaN values
+                        row.append(reward_val if not torch.isnan(torch.tensor(reward_val)) else "NaN")
+                    else:
+                        row.append("N/A")
+                
+                self.examples_table_data.append(row)
+            
+            # Create table with proper column names
+            columns = ["step", "prompt", "completion"] + reward_names
+            
+            # Log the cumulative table
             wandb.log({
-                "examples": wandb.Table(
-                    columns=["step", "prompt", "completion"] + list(rewards.keys()),
-                    data=[[self.global_step, p, c] + [rewards[name][i].item() for name in rewards.keys()] 
-                        for i, (p, c) in enumerate(zip(prompts[:5], completions[:5]))]
-                )
+                "examples": wandb.Table(columns=columns, data=self.examples_table_data)
             }, step=self.global_step)
-
+        
+        # Log scalar metrics
         wandb.log(metrics, step=self.global_step)
