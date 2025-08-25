@@ -9,13 +9,13 @@ value_head_model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 2000
+  num_examples: 10000
 
 training:
   seed: 42
   output_dir: "outputs/latent_reasoner_1p5b_sft_latent_rl"
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 16
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 128
   lr_scheduler_type: "cosine_with_min_lr"
   learning_rate: 5.0e-6
   lr_scheduler_kwargs: 
@@ -26,6 +26,7 @@ training:
   weight_decay: 0.01
   max_grad_norm: 1.0
   logging_steps: 1
+  value_head_learning_rate: 0.001
 
 generation_parameters:
   max_completion_length: 1024  # Maximum length of the generated answer

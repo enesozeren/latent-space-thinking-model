@@ -28,21 +28,31 @@ class LatentRLTrainer():
         self.global_step = 0
         self.training_metrics = []
         
-        self.optimizer = self._setup_optimizer()
+        # Initialize dual optimizers
+        self.rl_optimizer, self.value_head_optimizer = self._setup_optimizer()
 
 
     def _setup_optimizer(self):
-        """Setup optimizer for training"""
+        """Setup optimizers for training - separate optimizers for different components"""
         lr = self.args.get("learning_rate", 5e-5)
+        value_head_lr = self.args.get("value_head_learning_rate", lr)  # Can be different
         weight_decay = self.args.get("weight_decay", 0.01)
         
-        optimizer = torch.optim.AdamW(
-            self.value_model.parameters(), # since the value model and model parameters are tied
+        # Optimizer for latent reasoner (RL training)
+        rl_optimizer = torch.optim.AdamW(
+            self.model.parameters(), 
             lr=lr, 
             weight_decay=weight_decay
         )
         
-        return optimizer
+        # Optimizer for value head (supervised training)
+        value_head_optimizer = torch.optim.AdamW(
+            self.value_model.value_head.parameters(), 
+            lr=value_head_lr, 
+            weight_decay=weight_decay
+        )
+        
+        return rl_optimizer, value_head_optimizer
 
 
     def _generate_and_score_completions(self, inputs) -> dict:
@@ -129,47 +139,57 @@ class LatentRLTrainer():
 
 
     def train_step(self, inputs):
-        # generate a response with LatR model
-        ## this returns prompt and completion token ids and embeddings, rewards, mask (latent steps: 1, others 0)
+        # Generate response with LatR model - single forward pass
         generation_results = self._generate_and_score_completions(inputs)
         
-        # freeze the value model head
-        self.value_model.freeze_value_head()        
-        # pass all the prompt+completion embeddings through the Value Model (tied with LatR model + value model head)
+        # Single forward pass through the Value Model
         values_logits = self.value_model(inputs_embeds=generation_results["prompt_completion_embeds"])
-        # pass the values_logits through sigmoid
         values = torch.sigmoid(values_logits)
 
-        # Extract latent mask and create target rewards
+        # Extract latent mask and rewards
         latent_mask = generation_results["latent_mask"]  # Shape: [batch_size, seq_len]
-        
-        # Use value model predictions as rewards for latent steps (RL objective)
-        # The value model evaluates how "good" each latent step embedding is]
-        
-        # Apply latent mask to extract rewards only for latent steps
-        latent_rewards = values * latent_mask.float()  # Zero out non-latent steps
-        
-        # Calculate RL loss: maximize the value model's predictions for latent steps
-        # We use negative values as loss (since we want to maximize rewards)
+        accuracy_rewards = generation_results["rewards"]["accuracy_reward"]  # [batch_size]
         num_latent_tokens = latent_mask.sum()
-        if num_latent_tokens > 0:
-            # Average reward over latent steps, then negate for loss
-            avg_latent_reward = latent_rewards.sum() / num_latent_tokens
-            loss = -avg_latent_reward  # Maximize reward = minimize negative reward
-        else:
-            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         
-        # backprop through the Value Model (so the LatR model is also updated)
-        loss.backward()
+        # === RL Loss (for latent reasoner) ===
+        latent_rewards = values * latent_mask.float()
+        if num_latent_tokens > 0:
+            avg_latent_reward = latent_rewards.sum() / num_latent_tokens
+            rl_loss = -avg_latent_reward
+        else:
+            rl_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        
+        # === Value Head Loss (supervised) ===
+        # Prepare targets for value head
+        expanded_targets = accuracy_rewards.unsqueeze(1).expand(-1, values_logits.size(1))
+        masked_targets = expanded_targets * latent_mask.float()
+        masked_logits = values_logits * latent_mask.float()
+        
+        if num_latent_tokens > 0:
+            flat_logits = masked_logits[latent_mask.bool()]
+            flat_targets = masked_targets[latent_mask.bool()]
+            value_head_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                flat_logits, flat_targets
+            )
+        else:
+            value_head_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        
+        # === Backward passes ===
+        # 1. RL loss backward (updates latent reasoner)
+        rl_loss.backward(retain_graph=True)
+        
+        # 2. Value head loss backward (updates value head)
+        value_head_loss.backward()
         
         return {
-            "loss": loss.item(),
+            "loss": rl_loss.item(),
+            "value_head_loss": value_head_loss.item(),
             "num_latent_tokens": num_latent_tokens.item() if num_latent_tokens > 0 else 0,
             "generation_results": generation_results
         }
 
     def train(self):
-        """Complete training function with proper optimization loop"""
+        """Complete training function with dual optimizers"""
         # Training configuration
         epochs = self.args.get("num_train_epochs", 1)
         gradient_accumulation_steps = self.args.get("gradient_accumulation_steps", 1)
@@ -190,29 +210,33 @@ class LatentRLTrainer():
             pbar = tqdm(self.train_loader, desc=f"Epoch {epoch + 1}")
             
             epoch_losses = []
+            epoch_value_head_losses = []
             accumulated_loss = 0.0
+            accumulated_value_head_loss = 0.0
             
             for batch_idx, batch in enumerate(pbar):
                 try:
-                    # Forward pass and compute loss
+                    # Forward pass and compute losses
                     step_results = self.train_step(batch)
                     
-                    # Accumulate loss for logging
+                    # Accumulate losses for logging
                     accumulated_loss += step_results["loss"]
+                    accumulated_value_head_loss += step_results["value_head_loss"]
                     epoch_losses.append(step_results["loss"])
+                    epoch_value_head_losses.append(step_results["value_head_loss"])
                     
                     # Gradient accumulation
                     if (batch_idx + 1) % gradient_accumulation_steps == 0:                        
-                        # Clip gradients
+                        # Clip gradients for both optimizers
                         if max_grad_norm > 0:
-                            torch.nn.utils.clip_grad_norm_(
-                                list(self.model.parameters()) + list(self.value_model.parameters()),
-                                max_grad_norm
-                            )
+                            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+                            torch.nn.utils.clip_grad_norm_(self.value_model.value_head.parameters(), max_grad_norm)
                         
-                        # Optimizer step
-                        self.optimizer.step()
-                        self.optimizer.zero_grad()
+                        # Optimizer steps
+                        self.rl_optimizer.step()
+                        self.value_head_optimizer.step()
+                        self.rl_optimizer.zero_grad()
+                        self.value_head_optimizer.zero_grad()
                         
                         # Update global step counter
                         self.global_step += 1
@@ -225,11 +249,14 @@ class LatentRLTrainer():
                         
                         # Update progress bar
                         avg_loss = accumulated_loss / gradient_accumulation_steps
+                        avg_value_head_loss = accumulated_value_head_loss / gradient_accumulation_steps
                         pbar.set_postfix({
-                            'loss': f'{avg_loss:.4f}',
+                            'rl_loss': f'{avg_loss:.4f}',
+                            'vh_loss': f'{avg_value_head_loss:.4f}',
                             'step': self.global_step
                         })
                         accumulated_loss = 0.0
+                        accumulated_value_head_loss = 0.0
                         
                 except Exception as e:
                     logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -239,7 +266,8 @@ class LatentRLTrainer():
             # Log epoch statistics
             if epoch_losses:
                 avg_epoch_loss = sum(epoch_losses) / len(epoch_losses)
-                logging.info(f"Epoch {epoch + 1} completed. Average loss: {avg_epoch_loss:.4f}")
+                avg_epoch_value_head_loss = sum(epoch_value_head_losses) / len(epoch_value_head_losses)
+                logging.info(f"Epoch {epoch + 1} completed. Average RL loss: {avg_epoch_loss:.4f}, Average value head loss: {avg_epoch_value_head_loss:.4f}")
             
             # Save checkpoint at end of epoch
             self._save_checkpoint(is_epoch_end=True, epoch=epoch)
@@ -309,6 +337,7 @@ class LatentRLTrainer():
         metrics = {
             "step": self.global_step,
             "loss": step_metrics["loss"],
+            "value_head_loss": step_metrics["value_head_loss"],
             "num_latent_tokens": step_metrics["num_latent_tokens"],
             **reward_stats
         }
@@ -317,6 +346,10 @@ class LatentRLTrainer():
         
         # Save examples for inspection (every 10 steps)
         if self.global_step % 10 == 0:
+            # Initialize examples table data if not exists
+            if not hasattr(self, 'examples_table_data'):
+                self.examples_table_data = []
+                
             # Determine the actual batch size to avoid index errors
             batch_size = len(prompts)
             num_examples = min(batch_size, 5)  # Take up to 5 examples or batch size, whichever is smaller

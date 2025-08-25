@@ -103,13 +103,3 @@ class ValueModel(nn.Module):
         }
         with open(os.path.join(save_directory, "value_model_config.json"), "w") as f:
             json.dump(config_dict, f)
-
-    def freeze_value_head(self):
-        """Freeze the value head - only LatentReasoner will be trainable"""
-        for param in self.value_head.parameters():
-            param.requires_grad = False
-    
-    def freeze_latent_reasoner(self):
-        """Freeze the LatentReasoner - only value head will be trainable"""
-        for param in self.latent_reasoner.parameters():
-            param.requires_grad = False
