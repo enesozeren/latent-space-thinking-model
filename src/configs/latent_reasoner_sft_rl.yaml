@@ -6,7 +6,7 @@ model:
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
-  num_examples: 15000
+  num_examples: 10000
 
 training:
   seed: 42

@@ -4,7 +4,7 @@ import wandb
 import logging
 import os
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score
+
 
 class LatentRLTrainer():
 
@@ -36,14 +36,19 @@ class LatentRLTrainer():
 
     def _setup_optimizer(self):
         """Setup optimizers for training - separate optimizers for different components"""
-        lr = self.args.get("learning_rate", 5e-5)
-        value_head_lr = self.args.get("value_head_learning_rate", lr)
+        lr = self.args.get("learning_rate")
+        value_head_lr = self.args.get("value_head_learning_rate")
         weight_decay = self.args.get("weight_decay", 0.01)
         
         # Optimizer for latent reasoner (RL training)
+        # Use value_model parameters EXCEPT the value_head since model and value_model share/tie params
+        value_head_param_ids = {id(p) for p in self.value_model.value_head.parameters()}
+        base_value_model_params = [
+            p for p in self.value_model.parameters() if id(p) not in value_head_param_ids
+        ]
         rl_optimizer = torch.optim.AdamW(
-            self.model.parameters(), 
-            lr=lr, 
+            base_value_model_params,
+            lr=lr,
             weight_decay=weight_decay
         )
         
@@ -54,6 +59,8 @@ class LatentRLTrainer():
             weight_decay=weight_decay
         )
         
+        logging.info(f"Optimizers with LM LR: {lr} and Value Head LR: {value_head_lr} are initialized.")
+
         return rl_optimizer, value_head_optimizer
 
 
@@ -194,13 +201,8 @@ class LatentRLTrainer():
             value_head_loss = torch.nn.functional.binary_cross_entropy_with_logits(
                 flat_logits, flat_targets
             )
-            with torch.no_grad():
-                y_true = flat_targets.detach().cpu().numpy()
-                y_score = torch.sigmoid(flat_logits).detach().cpu().numpy()
-                auc = float(roc_auc_score(y_true, y_score))
         else:
             value_head_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-            auc = None
         
         # === Backward passes ===
         # 1. RL loss backward (updates latent reasoner)
@@ -213,8 +215,7 @@ class LatentRLTrainer():
             "loss": rl_loss.item(),
             "value_head_loss": value_head_loss.item(),
             "num_latent_tokens": num_latent_tokens.item() if num_latent_tokens > 0 else 0,
-            "generation_results": generation_results,
-            "value_head_roc_auc": auc
+            "generation_results": generation_results
         }
 
     def train(self):
@@ -247,6 +248,13 @@ class LatentRLTrainer():
             epoch_value_head_losses = []
             accumulated_loss = 0.0
             accumulated_value_head_loss = 0.0
+            # Accumulators for averaging metrics across gradient accumulation window
+            ga_loss_sum = 0.0
+            ga_vh_loss_sum = 0.0
+            ga_num_latent_tokens_sum = 0.0
+            ga_micro_count = 0
+            ga_rewards_accumulator = {}
+            ga_last_generation_results = None
             
             for batch_idx, batch in enumerate(pbar):
                 try:
@@ -258,6 +266,16 @@ class LatentRLTrainer():
                     accumulated_value_head_loss += step_results["value_head_loss"]
                     epoch_losses.append(step_results["loss"])
                     epoch_value_head_losses.append(step_results["value_head_loss"])
+                    
+                    # Accumulate per-micro-step metrics for GA window
+                    ga_loss_sum += step_results["loss"]
+                    ga_vh_loss_sum += step_results["value_head_loss"]
+                    ga_num_latent_tokens_sum += step_results["num_latent_tokens"]
+                    ga_micro_count += 1
+                    ga_last_generation_results = step_results["generation_results"]
+                    # Aggregate rewards across micro-steps for accurate stats over the GA window
+                    for r_name, r_tensor in step_results["generation_results"]["rewards"].items():
+                        ga_rewards_accumulator.setdefault(r_name, []).append(r_tensor)
                     
                     # Gradient accumulation
                     if (batch_idx + 1) % gradient_accumulation_steps == 0:                        
@@ -281,11 +299,30 @@ class LatentRLTrainer():
                         if hasattr(self, "value_head_scheduler") and self.value_head_scheduler is not None:
                             self.value_head_scheduler.step()
                         
-                        # Calculate and log metrics
+                        # Calculate and log averaged metrics across the GA window
+                        aggregated_generation_results = ga_last_generation_results
+                        aggregated_generation_results["rewards"] = {
+                            r_name: torch.cat(r_list, dim=0) for r_name, r_list in ga_rewards_accumulator.items()
+                        }
+
+                        averaged_step_metrics = {
+                            "loss": ga_loss_sum / ga_micro_count,
+                            "value_head_loss": ga_vh_loss_sum / ga_micro_count,
+                            "num_latent_tokens": ga_num_latent_tokens_sum / ga_micro_count,
+                        }
+
                         self._calculate_and_log_metrics(
-                            step_results["generation_results"], 
-                            step_results
+                            aggregated_generation_results,
+                            averaged_step_metrics
                         )
+                        
+                        # Reset GA accumulators
+                        ga_loss_sum = 0.0
+                        ga_vh_loss_sum = 0.0
+                        ga_num_latent_tokens_sum = 0.0
+                        ga_micro_count = 0
+                        ga_rewards_accumulator = {}
+                        ga_last_generation_results = None
                         
                         # Update progress bar
                         avg_loss = accumulated_loss / gradient_accumulation_steps
@@ -379,7 +416,6 @@ class LatentRLTrainer():
             "loss": step_metrics["loss"],
             "value_head_loss": step_metrics["value_head_loss"],
             "num_latent_tokens": step_metrics["num_latent_tokens"],
-            "value_head_roc_auc": step_metrics.get("value_head_roc_auc"),
             **reward_stats
         }
         

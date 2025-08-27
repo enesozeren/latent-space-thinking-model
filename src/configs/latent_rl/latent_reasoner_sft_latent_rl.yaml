@@ -15,22 +15,21 @@ training:
   seed: 42
   output_dir: "outputs/latent_reasoner_1p5b_sft_latent_rl"
   per_device_train_batch_size: 2
-  gradient_accumulation_steps: 64
+  gradient_accumulation_steps: 128
   lr_scheduler_type: "cosine_with_min_lr"
   learning_rate: 5.0e-6
   lr_scheduler_kwargs: 
     min_lr_rate: 0.1
   num_train_epochs: 1
-  save_steps: 250
   warmup_steps: 10
   weight_decay: 0.01
   max_grad_norm: 1.0
   response_logging_steps: 5
-  value_head_learning_rate: 0.001
+  value_head_learning_rate: 1.0e-5
 
 generation_parameters:
   max_completion_length: 1024  # Maximum length of the generated answer
-  temperature: 0.0 # since latent steps are deterministic, temperature is unecessary
+  temperature: 0.0 # latent steps are deterministic
 
 wandb:
   project: latent_rl
