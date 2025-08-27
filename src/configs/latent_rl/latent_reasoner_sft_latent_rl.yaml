@@ -15,7 +15,7 @@ training:
   seed: 42
   output_dir: "outputs/latent_reasoner_1p5b_sft_latent_rl"
   per_device_train_batch_size: 2
-  gradient_accumulation_steps: 128
+  gradient_accumulation_steps: 64
   lr_scheduler_type: "cosine_with_min_lr"
   learning_rate: 5.0e-6
   lr_scheduler_kwargs: 
@@ -25,7 +25,7 @@ training:
   warmup_steps: 10
   weight_decay: 0.01
   max_grad_norm: 1.0
-  logging_steps: 1
+  response_logging_steps: 5
   value_head_learning_rate: 0.001
 
 generation_parameters:

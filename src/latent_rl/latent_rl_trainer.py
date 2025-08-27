@@ -1,8 +1,10 @@
 import torch
+import math
 import wandb
 import logging
 import os
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
 
 class LatentRLTrainer():
 
@@ -35,7 +37,7 @@ class LatentRLTrainer():
     def _setup_optimizer(self):
         """Setup optimizers for training - separate optimizers for different components"""
         lr = self.args.get("learning_rate", 5e-5)
-        value_head_lr = self.args.get("value_head_learning_rate", lr)  # Can be different
+        value_head_lr = self.args.get("value_head_learning_rate", lr)
         weight_decay = self.args.get("weight_decay", 0.01)
         
         # Optimizer for latent reasoner (RL training)
@@ -53,6 +55,27 @@ class LatentRLTrainer():
         )
         
         return rl_optimizer, value_head_optimizer
+
+
+    def _create_scheduler(self, optimizer, total_update_steps: int):
+        """Cosine decay with warmup and min_lr_rate tail."""
+        warmup_steps = int(self.args.get("warmup_steps", 0))
+        lr_sched_kwargs = self.args.get("lr_scheduler_kwargs", {}) or {}
+        min_lr_rate = float(lr_sched_kwargs.get("min_lr_rate", 0.0))
+
+        total_update_steps = max(int(total_update_steps), 1)
+        warmup_steps = max(int(warmup_steps), 0)
+        non_warmup_steps = max(total_update_steps - warmup_steps, 1)
+
+        def lr_lambda(current_step: int):
+            if warmup_steps > 0 and current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            progress = float(current_step - warmup_steps) / float(non_warmup_steps)
+            progress = min(max(progress, 0.0), 1.0)
+            cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_rate + (1.0 - min_lr_rate) * cosine
+
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
     def _generate_and_score_completions(self, inputs) -> dict:
@@ -171,8 +194,13 @@ class LatentRLTrainer():
             value_head_loss = torch.nn.functional.binary_cross_entropy_with_logits(
                 flat_logits, flat_targets
             )
+            with torch.no_grad():
+                y_true = flat_targets.detach().cpu().numpy()
+                y_score = torch.sigmoid(flat_logits).detach().cpu().numpy()
+                auc = float(roc_auc_score(y_true, y_score))
         else:
             value_head_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            auc = None
         
         # === Backward passes ===
         # 1. RL loss backward (updates latent reasoner)
@@ -185,7 +213,8 @@ class LatentRLTrainer():
             "loss": rl_loss.item(),
             "value_head_loss": value_head_loss.item(),
             "num_latent_tokens": num_latent_tokens.item() if num_latent_tokens > 0 else 0,
-            "generation_results": generation_results
+            "generation_results": generation_results,
+            "value_head_roc_auc": auc
         }
 
     def train(self):
@@ -201,7 +230,12 @@ class LatentRLTrainer():
         # Set models to training mode
         self.value_model.train()
 
-        total_steps = epochs * len(self.train_loader)
+        # Number of optimizer update steps per epoch (account for gradient accumulation)
+        steps_per_epoch = (len(self.train_loader) + gradient_accumulation_steps - 1) // gradient_accumulation_steps
+        total_update_steps = max(epochs * steps_per_epoch, 1)
+
+        # Setup LR schedulers after we know total update steps
+        self.rl_scheduler = self._create_scheduler(self.rl_optimizer, total_update_steps)
         
         for epoch in range(epochs):
             logging.info(f"Starting epoch {epoch + 1}/{epochs}")
@@ -240,6 +274,12 @@ class LatentRLTrainer():
                         
                         # Update global step counter
                         self.global_step += 1
+
+                        # Scheduler steps (after optimizer steps)
+                        if hasattr(self, "rl_scheduler") and self.rl_scheduler is not None:
+                            self.rl_scheduler.step()
+                        if hasattr(self, "value_head_scheduler") and self.value_head_scheduler is not None:
+                            self.value_head_scheduler.step()
                         
                         # Calculate and log metrics
                         self._calculate_and_log_metrics(
@@ -339,13 +379,14 @@ class LatentRLTrainer():
             "loss": step_metrics["loss"],
             "value_head_loss": step_metrics["value_head_loss"],
             "num_latent_tokens": step_metrics["num_latent_tokens"],
+            "value_head_roc_auc": step_metrics.get("value_head_roc_auc"),
             **reward_stats
         }
         
         self.training_metrics.append(metrics)
         
         # Save examples for inspection (every 10 steps)
-        if self.global_step % 10 == 0:
+        if self.global_step % self.args.get("response_logging_steps", 5) == 0:
             # Initialize examples table data if not exists
             if not hasattr(self, 'examples_table_data'):
                 self.examples_table_data = []
