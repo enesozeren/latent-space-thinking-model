@@ -42,6 +42,7 @@ def main():
     dropout  = float(cfg.get("training", {}).get("dropout", 0.1))
     batch_size  = int(cfg.get("training", {}).get("batch_size", 256))
     lr          = float(cfg.get("training", {}).get("learning_rate", 1e-2))
+    pos_weight  = float(cfg.get("training", {}).get("pos_weight", 1.0))
     num_epochs  = int(cfg.get("training", {}).get("num_epochs", 10))
     val_ratio   = float(cfg.get("training", {}).get("val_ratio", 0.2))
     test_ratio  = float(cfg.get("training", {}).get("test_ratio", 0.1))  # New parameter
@@ -87,7 +88,7 @@ def main():
     # model
     lit = LigthningValueHeadModel(
         input_dim=input_dim, hidden_dims=model_hidden_dims, 
-        dropout=dropout, learning_rate=lr
+        dropout=dropout, learning_rate=lr, pos_weight=pos_weight
     )
 
     # Calculate model parameter count
@@ -170,7 +171,8 @@ def main():
         input_dim=input_dim,
         hidden_dims=model_hidden_dims,
         dropout=dropout,
-        learning_rate=lr
+        learning_rate=lr,
+        pos_weight=pos_weight
     )
     
     # Test the best model

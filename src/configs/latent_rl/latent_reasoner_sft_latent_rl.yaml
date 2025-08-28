@@ -5,7 +5,7 @@ model:
   num_latent_steps: 6
 
 value_head_model:
-  pretrained_value_head_model_path: "outputs/value_model/20250824_215814/best_model.ckpt"
+  pretrained_value_head_model_path: "outputs/value_model/20250828_101906/best_model.ckpt"
 
 dataset:
   name: "open-r1/OpenR1-Math-220k"
@@ -26,6 +26,7 @@ training:
   max_grad_norm: 1.0
   response_logging_steps: 5
   value_head_learning_rate: 1.0e-5
+  value_head_pos_weight: 20
 
 generation_parameters:
   max_completion_length: 1024  # Maximum length of the generated answer

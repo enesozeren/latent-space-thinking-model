@@ -199,7 +199,8 @@ class LatentRLTrainer():
             flat_logits = masked_logits[latent_mask.bool()]
             flat_targets = masked_targets[latent_mask.bool()]
             value_head_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                flat_logits, flat_targets
+                flat_logits, flat_targets, 
+                pos_weight=torch.tensor([self.args.get("value_head_pos_weight")], dtype=torch.float32).to(self.device)
             )
         else:
             value_head_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
@@ -257,88 +258,82 @@ class LatentRLTrainer():
             ga_last_generation_results = None
             
             for batch_idx, batch in enumerate(pbar):
-                try:
-                    # Forward pass and compute losses
-                    step_results = self.train_step(batch)
+                # Forward pass and compute losses
+                step_results = self.train_step(batch)
+                
+                # Accumulate losses for logging
+                accumulated_loss += step_results["loss"]
+                accumulated_value_head_loss += step_results["value_head_loss"]
+                epoch_losses.append(step_results["loss"])
+                epoch_value_head_losses.append(step_results["value_head_loss"])
+                
+                # Accumulate per-micro-step metrics for GA window
+                ga_loss_sum += step_results["loss"]
+                ga_vh_loss_sum += step_results["value_head_loss"]
+                ga_num_latent_tokens_sum += step_results["num_latent_tokens"]
+                ga_micro_count += 1
+                ga_last_generation_results = step_results["generation_results"]
+                # Aggregate rewards across micro-steps for accurate stats over the GA window
+                for r_name, r_tensor in step_results["generation_results"]["rewards"].items():
+                    ga_rewards_accumulator.setdefault(r_name, []).append(r_tensor)
+                
+                # Gradient accumulation
+                if (batch_idx + 1) % gradient_accumulation_steps == 0:                        
+                    # Clip gradients for both optimizers
+                    if max_grad_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
+                        torch.nn.utils.clip_grad_norm_(self.value_model.value_head.parameters(), max_grad_norm)
                     
-                    # Accumulate losses for logging
-                    accumulated_loss += step_results["loss"]
-                    accumulated_value_head_loss += step_results["value_head_loss"]
-                    epoch_losses.append(step_results["loss"])
-                    epoch_value_head_losses.append(step_results["value_head_loss"])
+                    # Optimizer steps
+                    self.rl_optimizer.step()
+                    self.value_head_optimizer.step()
+                    self.rl_optimizer.zero_grad()
+                    self.value_head_optimizer.zero_grad()
                     
-                    # Accumulate per-micro-step metrics for GA window
-                    ga_loss_sum += step_results["loss"]
-                    ga_vh_loss_sum += step_results["value_head_loss"]
-                    ga_num_latent_tokens_sum += step_results["num_latent_tokens"]
-                    ga_micro_count += 1
-                    ga_last_generation_results = step_results["generation_results"]
-                    # Aggregate rewards across micro-steps for accurate stats over the GA window
-                    for r_name, r_tensor in step_results["generation_results"]["rewards"].items():
-                        ga_rewards_accumulator.setdefault(r_name, []).append(r_tensor)
+                    # Update global step counter
+                    self.global_step += 1
+
+                    # Scheduler steps (after optimizer steps)
+                    if hasattr(self, "rl_scheduler") and self.rl_scheduler is not None:
+                        self.rl_scheduler.step()
+                    if hasattr(self, "value_head_scheduler") and self.value_head_scheduler is not None:
+                        self.value_head_scheduler.step()
                     
-                    # Gradient accumulation
-                    if (batch_idx + 1) % gradient_accumulation_steps == 0:                        
-                        # Clip gradients for both optimizers
-                        if max_grad_norm > 0:
-                            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                            torch.nn.utils.clip_grad_norm_(self.value_model.value_head.parameters(), max_grad_norm)
-                        
-                        # Optimizer steps
-                        self.rl_optimizer.step()
-                        self.value_head_optimizer.step()
-                        self.rl_optimizer.zero_grad()
-                        self.value_head_optimizer.zero_grad()
-                        
-                        # Update global step counter
-                        self.global_step += 1
+                    # Calculate and log averaged metrics across the GA window
+                    aggregated_generation_results = ga_last_generation_results
+                    aggregated_generation_results["rewards"] = {
+                        r_name: torch.cat(r_list, dim=0) for r_name, r_list in ga_rewards_accumulator.items()
+                    }
 
-                        # Scheduler steps (after optimizer steps)
-                        if hasattr(self, "rl_scheduler") and self.rl_scheduler is not None:
-                            self.rl_scheduler.step()
-                        if hasattr(self, "value_head_scheduler") and self.value_head_scheduler is not None:
-                            self.value_head_scheduler.step()
-                        
-                        # Calculate and log averaged metrics across the GA window
-                        aggregated_generation_results = ga_last_generation_results
-                        aggregated_generation_results["rewards"] = {
-                            r_name: torch.cat(r_list, dim=0) for r_name, r_list in ga_rewards_accumulator.items()
-                        }
+                    averaged_step_metrics = {
+                        "loss": ga_loss_sum / ga_micro_count,
+                        "value_head_loss": ga_vh_loss_sum / ga_micro_count,
+                        "num_latent_tokens": ga_num_latent_tokens_sum / ga_micro_count,
+                    }
 
-                        averaged_step_metrics = {
-                            "loss": ga_loss_sum / ga_micro_count,
-                            "value_head_loss": ga_vh_loss_sum / ga_micro_count,
-                            "num_latent_tokens": ga_num_latent_tokens_sum / ga_micro_count,
-                        }
-
-                        self._calculate_and_log_metrics(
-                            aggregated_generation_results,
-                            averaged_step_metrics
-                        )
-                        
-                        # Reset GA accumulators
-                        ga_loss_sum = 0.0
-                        ga_vh_loss_sum = 0.0
-                        ga_num_latent_tokens_sum = 0.0
-                        ga_micro_count = 0
-                        ga_rewards_accumulator = {}
-                        ga_last_generation_results = None
-                        
-                        # Update progress bar
-                        avg_loss = accumulated_loss / gradient_accumulation_steps
-                        avg_value_head_loss = accumulated_value_head_loss / gradient_accumulation_steps
-                        pbar.set_postfix({
-                            'rl_loss': f'{avg_loss:.4f}',
-                            'vh_loss': f'{avg_value_head_loss:.4f}',
-                            'step': self.global_step
-                        })
-                        accumulated_loss = 0.0
-                        accumulated_value_head_loss = 0.0
-                        
-                except Exception as e:
-                    logging.error(f"Error in batch {batch_idx}: {str(e)}")
-                    # Continue training with next batch
-                    continue
+                    self._calculate_and_log_metrics(
+                        aggregated_generation_results,
+                        averaged_step_metrics
+                    )
+                    
+                    # Reset GA accumulators
+                    ga_loss_sum = 0.0
+                    ga_vh_loss_sum = 0.0
+                    ga_num_latent_tokens_sum = 0.0
+                    ga_micro_count = 0
+                    ga_rewards_accumulator = {}
+                    ga_last_generation_results = None
+                    
+                    # Update progress bar
+                    avg_loss = accumulated_loss / gradient_accumulation_steps
+                    avg_value_head_loss = accumulated_value_head_loss / gradient_accumulation_steps
+                    pbar.set_postfix({
+                        'rl_loss': f'{avg_loss:.4f}',
+                        'vh_loss': f'{avg_value_head_loss:.4f}',
+                        'step': self.global_step
+                    })
+                    accumulated_loss = 0.0
+                    accumulated_value_head_loss = 0.0
             
             # Log epoch statistics
             if epoch_losses:

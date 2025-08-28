@@ -48,12 +48,13 @@ class H5ValueDataset(Dataset):
 
 
 class LigthningValueHeadModel(LightningModule):
-    def __init__(self, input_dim: int, hidden_dims: list, dropout: float, learning_rate: float):
+    def __init__(self, input_dim: int, hidden_dims: list, dropout: float, learning_rate: float, pos_weight: float = 1.0):
         super().__init__()
         self.model = ValueHeadModel(
             input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout
         )
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.register_buffer("pos_weight", torch.tensor([pos_weight], dtype=torch.float32))
+        self.loss_fn = nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
         self.learning_rate = learning_rate
         
         # Initialize metrics - these will accumulate across batches
