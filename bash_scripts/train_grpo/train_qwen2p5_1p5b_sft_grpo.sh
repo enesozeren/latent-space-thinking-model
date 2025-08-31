@@ -11,11 +11,11 @@ source activate latr
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config and number of processes for training
-CONFIG_PATH="src/configs/qwen2p5_1p5b_sft_rl.yaml"
+CONFIG_PATH="src/configs/qwen/qwen2p5_1p5b_sft_rl.yaml"
 NUM_PROCESSES=4
 
 # Launch GRPO training
 echo "Starting GRPO training"
 CUDA_VISIBLE_DEVICES=0,1,2,3 accelerate launch \
     --num_processes $NUM_PROCESSES \
-    src/train/train_rl.py --config $CONFIG_PATH
+    src/train_sft_grpo/train_grpo.py --config $CONFIG_PATH

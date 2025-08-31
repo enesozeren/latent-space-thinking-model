@@ -11,8 +11,8 @@ source activate latr_2
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
 # Config path
-CONFIG_PATH="src/configs/latent_reasoner_sft.yaml"
+CONFIG_PATH="src/configs/latr/latent_reasoner_sft.yaml"
 
 # Launch Lightning training
 echo "Starting SFT for Latent Reasoner with PyTorch Lightning"
-python src/train/train_sft.py --config $CONFIG_PATH
+python src/train_sft_grpo/train_sft.py --config $CONFIG_PATH

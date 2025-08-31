@@ -11,7 +11,7 @@ source /dss/dsshome1/0B/ra32qov2/anaconda3/etc/profile.d/conda.sh
 conda activate latr_2
 export PYTHONPATH=$PYTHONPATH:/dss/dsshome1/0B/ra32qov2/latent-reasoner
 
-CONFIG_PATH="src/configs/latent_reasoner_sft_rl_eval_gsm.yaml"
+CONFIG_PATH="src/configs/latr/latent_reasoner_sft_rl_eval_gsm.yaml"
 
 echo "Starting evaluation"
 
