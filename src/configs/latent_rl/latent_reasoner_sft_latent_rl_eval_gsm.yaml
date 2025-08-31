@@ -1,6 +1,6 @@
 # Model configuration
 model:
-  base_model_name_or_path: "outputs/latent_reasoner_1p5b_sft_latent_rl/20250827_180422/model/checkpoint_epoch_0"
+  base_model_name_or_path: "outputs/latent_reasoner_1p5b_sft_latent_rl/20250827_180422/checkpoint_epoch_0"
   is_latent_reasoner: True  # Set to true for latent reasoner evaluation
   num_latent_steps: 6  # Number of latent steps
 
