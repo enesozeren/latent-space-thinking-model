@@ -3,6 +3,7 @@
 Master thesis: Exploring the Impact of Reinforcement Learning with Rule-Based Rewards on Latent Space Thinking in Language Models
 
 Student: Enes Özeren
+
 Supervisor: Dr. Matthias Aßenmacher
 
 This repository is built for implementation of latent-space thinking models, training, evaluation. You can find the thesis report in the link: `TBD`
@@ -78,7 +79,8 @@ Before runing the bash scripts, you can adjust the parameters in the config file
     bash bash_scripts/train_sft/train_latent_reasoner_sft.sh
     ```
 
-- To train the LatR 1.5B SFT & GRPO model use:
+- To train the LatR 1.5B SFT & GRPO model:
+    You need a modified version of trl package. You can install this with `pip install git+https://github.com/enesozeren/trl.git`
     ```bash
     bash bash_scripts/train_grpo/train_latent_reasoner_sft_grpo.sh
     ```
@@ -104,7 +106,9 @@ Before runing the bash scripts, you can adjust the parameters in the config file
     bash bash_scripts/train_sft/train_qwen2p5_1p5b_sft.sh
     ```
 
-- To train the Qwen 1.5B SFT & GRPO model use:
+- To train the Qwen 1.5B SFT & GRPO model:
+    First `pip install trl==018.0`
+    Then run the following bash script.
     ```bash
     bash bash_scripts/train_grpo/train_qwen2p5_1p5b_sft_grpo.sh
     ```
