@@ -1,17 +1,17 @@
-# Latent Reasoner
+# Latent Space Thinking Model
 
-Master thesis: Exploring the Impact of Reinforcement Learning with Rule-Based Rewards on Latent Space Thinking in Language Models
+[![arXiv](https://img.shields.io/badge/arXiv-xxxx.xxxxx-b31b1b.svg)](https://arxiv.org/abs/xxxx.xxxxx)
 
-Student: Enes Özeren
+Reinforcement Learning for Latent-Space Thinking in LLMs
 
-Supervisor: Dr. Matthias Aßenmacher
+Authors: Enes Özeren, Matthias Aßenmacher
 
-This repository is built for implementation of latent-space thinking models, training, evaluation. You can find the thesis report in the link: `TBD`
+This repository is built for implementation of latent-space thinking models, SFT + RL training methods, and evaluation.
 
 ## Repo Structure
 
 ```
-latent-reasoner/
+latent-space-thinking-model/
 ├── bash_scripts/                    # Shell scripts for training and evaluation
 │   ├── eval/                        # Model evaluation scripts
 │   ├── latent_rl/                   # Latent RL training scripts
