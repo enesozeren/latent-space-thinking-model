@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 import argparse
 
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import setup_latent_tokens
+from src.train_sft_grpo.utils import setup_latent_tokens
 from prompts.prompts import (
     SYSTEM_PROMPT_LATENT_REASONER_NO_THINK
 )

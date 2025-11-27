@@ -15,8 +15,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.data_process.process_data import prepare_dataset_sft
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import is_rank_zero, setup_latent_tokens
-from src.train.utils import calculate_total_latents
+from src.train_sft_grpo.utils import is_rank_zero, setup_latent_tokens
+from src.train_sft_grpo.utils import calculate_total_latents
 from src.eval.eval import extract_answer_from_response
 
 class ModelLightningModule(L.LightningModule):

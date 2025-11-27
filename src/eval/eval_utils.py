@@ -100,6 +100,7 @@ def save_results(cfg, dataset, first_responses, first_extracted_answers_in_respo
         run_name = cfg["logs"]["wandb_run_name"] or f"{model_name}_{dataset_name}_eval"
         run = wandb.init(
             project=cfg["logs"]["wandb_project"], 
+            entity="lmu-thesis-team",
             name=run_name, 
             config=cfg,
             job_type="evaluation", 

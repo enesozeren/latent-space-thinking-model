@@ -9,7 +9,7 @@ from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from src.train.utils import load_config
+from src.train_sft_grpo.utils import load_config
 from src.value_model.lightning_modules import H5ValueDataset, LigthningValueHeadModel
 
 def parse_args():

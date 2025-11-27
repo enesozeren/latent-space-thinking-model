@@ -8,9 +8,9 @@ from datetime import datetime
 from trl import GRPOTrainer, GRPOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from src.train.rewards import format_reward, accuracy_reward
+from src.train_sft_grpo.rewards import format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset_rl
-from src.train.utils import load_config, setup_latent_tokens
+from src.train_sft_grpo.utils import load_config, setup_latent_tokens
 
 
 def setup_training_args(config: dict) -> GRPOConfig:
@@ -62,6 +62,7 @@ def train_model(config_path: str) -> None:
     if is_main and "wandb" in cfg and cfg["wandb"].get("project"):
         run = wandb.init(
             project=cfg["wandb"]["project"],
+            entity="lmu-thesis-team",
             name=cfg["wandb"].get("run_name"),
             config=cfg,
         )

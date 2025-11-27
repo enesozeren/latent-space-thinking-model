@@ -6,10 +6,10 @@ import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 
-from src.train.utils import (
+from src.train_sft_grpo.utils import (
     load_config, setup_logging, is_rank_zero
 )
-from src.train.lightning_modules import (
+from src.train_sft_grpo.lightning_modules import (
     SFTDataModule, GenerateSamplesCallback, ModelLightningModule, 
     DatasetRefreshCallback, HFModelCheckpoint
 )

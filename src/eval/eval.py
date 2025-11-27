@@ -33,7 +33,7 @@ from prompts.prompts import (
 from src.data_process.process_data_eval import prepare_dataset
 from src.eval.eval_utils import save_results
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import load_config, setup_latent_tokens
+from src.train_sft_grpo.utils import load_config, setup_latent_tokens
 
 logging.basicConfig(
     level=logging.INFO,

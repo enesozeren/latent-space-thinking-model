@@ -29,6 +29,7 @@ def train_model(config_path: str) -> None:
     if is_main and "wandb" in cfg and cfg["wandb"].get("project"):
         run = wandb.init(
             project=cfg["wandb"]["project"],
+            entity="lmu-thesis-team",
             name=cfg["wandb"].get("run_name"),
             config=cfg,
         )

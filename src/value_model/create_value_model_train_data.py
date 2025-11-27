@@ -7,10 +7,10 @@ import numpy as np
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
-from src.train.rewards import latent_format_reward, accuracy_reward
+from src.train_sft_grpo.rewards import latent_format_reward, accuracy_reward
 from src.data_process.process_data import prepare_dataset_rl
 from src.latent_reasoner.model import LatentReasoner
-from src.train.utils import load_config, setup_latent_tokens
+from src.train_sft_grpo.utils import load_config, setup_latent_tokens
 
 def create_value_model_training_data(config_path: str) -> None:
     cfg = load_config(config_path)
